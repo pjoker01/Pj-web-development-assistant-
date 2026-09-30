@@ -1,0 +1,6 @@
+{
+  "name": "PJ Web Development Assistant",
+  "description": "A friendly and professional AI assistant to help visitors explore web development options and services for their business.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

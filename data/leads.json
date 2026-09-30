@@ -1,0 +1,98 @@
+[
+  {
+    "id": "lead_1790741522605_xhpsqx",
+    "customer_name": "Sarah",
+    "business_name": "Sarah's Hair Studio",
+    "business_type": "Hairdresser",
+    "location": "Sandton",
+    "customer_whatsapp": "+27821234567",
+    "website_goal": "Showcase hairstyles and take bookings via WhatsApp.",
+    "requested_features": [
+      "Hairstyle gallery",
+      "Price list",
+      "Client testimonials",
+      "WhatsApp booking button"
+    ],
+    "recommended_package": "Business",
+    "additional_requirements": "None",
+    "created_at": "2026-09-30T04:12:02.605Z",
+    "lead_status": "New"
+  },
+  {
+    "id": "lead_1790742319327_ulpr5y",
+    "customer_name": "Peuge Joker",
+    "business_name": "PJ Salon",
+    "business_type": "Hair Salon",
+    "location": "Pretoria",
+    "customer_whatsapp": "+27610140065",
+    "website_goal": "Create a professional online presence to advertise the salon and showcase work.",
+    "requested_features": [
+      "Homepage",
+      "About section",
+      "and Services list",
+      "Photo Gallery (for hairstyles and transformations)",
+      "WhatsApp contact button",
+      "Tap-to-call button",
+      "Location and opening hours"
+    ],
+    "recommended_package": "Business",
+    "additional_requirements": "None",
+    "created_at": "2026-09-30T04:25:19.327Z",
+    "lead_status": "New"
+  },
+  {
+    "id": "lead_1790744236853_dtojfu",
+    "customer_name": "Peuge",
+    "business_name": "PJ Salon",
+    "business_type": "Hair salon",
+    "location": "Pretoria",
+    "customer_whatsapp": "0610140065",
+    "website_goal": "Showcase hairstyles and enable clients to book appointments",
+    "requested_features": [
+      "Hairstyles gallery",
+      "Price list",
+      "WhatsApp booking"
+    ],
+    "recommended_package": "Business",
+    "additional_requirements": "None",
+    "created_at": "2026-09-30T04:57:16.853Z",
+    "lead_status": "New"
+  },
+  {
+    "id": "lead_1790745045833_238n3b",
+    "customer_name": "Shamie",
+    "business_name": "SNEAKER & ACCESSORIES HUB",
+    "business_type": "Online Sneaker & Accessories Shop",
+    "location": "Pretoria Sunnyside",
+    "customer_whatsapp": "+27694008067",
+    "website_goal": "To allow customers to shop and purchase sneakers and accessories directly online.",
+    "requested_features": [
+      "Full e-commerce store (Product listings and checkout system)",
+      "Search bar",
+      "Category browsing"
+    ],
+    "recommended_package": "Premium",
+    "additional_requirements": "None",
+    "created_at": "2026-09-30T05:10:45.833Z",
+    "lead_status": "New"
+  },
+  {
+    "id": "lead_1790745434557_cn4a7k",
+    "customer_name": "Shamie",
+    "business_name": "SNEAKER & ACCESSORIES HUB",
+    "business_type": "Online sneaker & accessories shop",
+    "location": "Pretoria Sunnyside",
+    "customer_whatsapp": "0694008067",
+    "website_goal": "Sell sneakers and accessories online",
+    "requested_features": [
+      "Product listings",
+      "Shopping cart and checkout",
+      "Payment integration",
+      "Search bar"
+    ],
+    "recommended_package": "Premium",
+    "additional_requirements": "None",
+    "created_at": "2026-09-30T05:17:14.557Z",
+    "lead_status": "New"
+  }
+]
