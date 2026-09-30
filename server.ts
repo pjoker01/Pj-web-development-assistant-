@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 
@@ -24,7 +25,7 @@ export interface CloudLeadRecord {
   recommended_package: 'Starter' | 'Business' | 'Premium';
   additional_requirements: string;
   created_at: string;
-  lead_status: 'New';
+  lead_status: 'New' | 'Contacted' | 'Discussing' | 'Approved' | 'In Progress' | 'Completed';
 }
 
 function getStoredLeads(): CloudLeadRecord[] {
@@ -492,8 +493,77 @@ Immediately after the summary block, write:
     }
   });
 
+  // --------------------------------------------------------------------------
+  // Private owner dashboard authentication
+  // Set ADMIN_PASSWORD in the hosting environment. Never hard-code the password.
+  // --------------------------------------------------------------------------
+  const ADMIN_COOKIE = 'pj_admin_session';
+  const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+  function getAdminPassword(): string {
+    return String(process.env.ADMIN_PASSWORD || '');
+  }
+
+  function makeAdminToken(expiresAt: number): string {
+    const password = getAdminPassword();
+    return crypto.createHmac('sha256', password).update(String(expiresAt)).digest('hex') + '.' + expiresAt;
+  }
+
+  function isAdminAuthenticated(req: any): boolean {
+    const password = getAdminPassword();
+    if (!password) return false;
+    const raw = String(req.headers.cookie || '');
+    const match = raw.split(';').map((v: string) => v.trim()).find((v: string) => v.startsWith(ADMIN_COOKIE + '='));
+    if (!match) return false;
+    const token = decodeURIComponent(match.slice((ADMIN_COOKIE + '=').length));
+    const [signature, expiresText] = token.split('.');
+    const expiresAt = Number(expiresText);
+    if (!signature || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+    const expected = crypto.createHmac('sha256', password).update(String(expiresAt)).digest('hex');
+    return signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  }
+
+  app.post('/api/admin/login', (req, res) => {
+    const password = getAdminPassword();
+    if (!password) {
+      return res.status(503).json({ error: 'Admin dashboard is not configured yet. Set ADMIN_PASSWORD in the hosting environment.' });
+    }
+    if (String(req.body?.password || '') !== password) {
+      return res.status(401).json({ error: 'Invalid password.' });
+    }
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    const token = makeAdminToken(expiresAt);
+    res.setHeader('Set-Cookie', `${ADMIN_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
+    return res.json({ success: true });
+  });
+
+  app.post('/api/admin/logout', (_req, res) => {
+    res.setHeader('Set-Cookie', `${ADMIN_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`);
+    return res.json({ success: true });
+  });
+
+  app.get('/api/admin/leads', (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: 'Unauthorized' });
+    return res.json({ success: true, count: getStoredLeads().length, leads: getStoredLeads() });
+  });
+
+  app.patch('/api/admin/leads/:id', (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: 'Unauthorized' });
+    const allowed = ['New', 'Contacted', 'Discussing', 'Approved', 'In Progress', 'Completed'];
+    const nextStatus = String(req.body?.lead_status || '');
+    if (!allowed.includes(nextStatus)) return res.status(400).json({ error: 'Invalid lead status.' });
+
+    const leads = getStoredLeads();
+    const index = leads.findIndex(l => l.id === req.params.id);
+    if (index < 0) return res.status(404).json({ error: 'Lead not found.' });
+    leads[index] = { ...leads[index], lead_status: nextStatus as CloudLeadRecord['lead_status'] };
+    if (!saveStoredLeads(leads)) return res.status(500).json({ error: 'Unable to save lead status.' });
+    return res.json({ success: true, lead: leads[index] });
+  });
+
   // GET /api/leads - View saved leads (for testing/verification)
-  app.get('/api/leads', (_req, res) => {
+  app.get('/api/leads', (req, res) => {
+    if (!isAdminAuthenticated(req)) return res.status(401).json({ error: 'Unauthorized' });
     try {
       const leads = getStoredLeads();
       return res.json({
