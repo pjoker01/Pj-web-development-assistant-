@@ -393,16 +393,9 @@ Immediately after the summary block, write:
     }
   });
 
-  // POST /api/leads - Save cloud lead record
-  app.post('/api/leads', (req, res) => {
+  // POST /api/leads - Save a qualified lead directly to the private Notion CRM
+  app.post('/api/leads', async (req, res) => {
     try {
-      // Simulate failure hook for testing failure resilience
-      if (req.headers['x-simulate-failure'] === 'true' || req.query.simulate_failure === 'true') {
-        return res.status(503).json({
-          error: "Cloud lead storage is temporarily unavailable.",
-        });
-      }
-
       const {
         customer_name,
         business_name,
@@ -415,7 +408,6 @@ Immediately after the summary block, write:
         additional_requirements,
       } = req.body;
 
-      // Validate required lead information
       if (
         !customer_name ||
         !business_name ||
@@ -427,68 +419,109 @@ Immediately after the summary block, write:
         !recommended_package
       ) {
         return res.status(400).json({
-          error: "Missing required project information to save lead.",
+          error: 'Missing required project information to save lead.',
         });
       }
 
-      const leads = getStoredLeads();
+      const notionToken = process.env.NOTION_API_KEY;
+      const dataSourceId = process.env.NOTION_DATA_SOURCE_ID;
 
-      // Duplicate protection: prevent saving duplicate leads for identical submission
-      const existing = leads.find(
-        (l) =>
-          l.customer_name.toLowerCase() === String(customer_name).trim().toLowerCase() &&
-          l.business_name.toLowerCase() === String(business_name).trim().toLowerCase() &&
-          l.customer_whatsapp === String(customer_whatsapp).trim() &&
-          l.website_goal.toLowerCase() === String(website_goal).trim().toLowerCase()
-      );
-
-      if (existing) {
-        return res.json({
-          success: true,
-          lead: existing,
-          duplicate: true,
-        });
-      }
-
-      let cleanPackage: 'Starter' | 'Business' | 'Premium' = 'Business';
-      const pkgStr = String(recommended_package).toLowerCase();
-      if (pkgStr.includes('starter')) cleanPackage = 'Starter';
-      else if (pkgStr.includes('premium')) cleanPackage = 'Premium';
-
-      const newLead: CloudLeadRecord = {
-        id: `lead_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        customer_name: String(customer_name).trim(),
-        business_name: String(business_name).trim(),
-        business_type: String(business_type).trim(),
-        location: String(location).trim(),
-        customer_whatsapp: String(customer_whatsapp).trim(),
-        website_goal: String(website_goal).trim(),
-        requested_features: Array.isArray(requested_features)
-          ? requested_features.map((f: any) => String(f).trim()).filter(Boolean)
-          : [String(requested_features).trim()],
-        recommended_package: cleanPackage,
-        additional_requirements: String(additional_requirements || 'None').trim(),
-        created_at: new Date().toISOString(),
-        lead_status: 'New',
-      };
-
-      leads.push(newLead);
-      const isSaved = saveStoredLeads(leads);
-
-      if (!isSaved) {
+      if (!notionToken || !dataSourceId) {
+        console.error('Notion CRM is not configured. Missing NOTION_API_KEY or NOTION_DATA_SOURCE_ID.');
         return res.status(500).json({
-          error: "Unable to write lead to cloud storage layer.",
+          error: 'Lead storage is not configured.',
+        });
+      }
+
+      const cleanPackage = (() => {
+        const value = String(recommended_package).toLowerCase();
+        if (value.includes('starter')) return 'Starter';
+        if (value.includes('premium')) return 'Premium';
+        return 'Standard';
+      })();
+
+      const features = Array.isArray(requested_features)
+        ? requested_features.map((f: any) => String(f).trim()).filter(Boolean)
+        : [String(requested_features).trim()];
+
+      const whatTheyNeed = [
+        `Goal: ${String(website_goal).trim()}`,
+        features.length ? `Confirmed features: ${features.join(', ')}` : '',
+      ].filter(Boolean).join('\\n');
+
+      const notes = [
+        `Location: ${String(location).trim()}`,
+        `Additional requirements: ${String(additional_requirements || 'None').trim()}`,
+      ].join('\\n');
+
+      const notionResponse = await fetch('https://api.notion.com/v1/pages', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${notionToken}`,
+          'Content-Type': 'application/json',
+          'Notion-Version': '2025-09-03',
+        },
+        body: JSON.stringify({
+          parent: {
+            data_source_id: dataSourceId,
+          },
+          properties: {
+            'Business': {
+              title: [{ text: { content: String(business_name).trim() } }],
+            },
+            'Contact person': {
+              rich_text: [{ text: { content: String(customer_name).trim() } }],
+            },
+            'Phone / WhatsApp': {
+              phone_number: String(customer_whatsapp).trim(),
+            },
+            'Industry': {
+              rich_text: [{ text: { content: String(business_type).trim() } }],
+            },
+            'What they need': {
+              rich_text: [{ text: { content: whatTheyNeed.slice(0, 2000) } }],
+            },
+            'Potential package': {
+              select: { name: cleanPackage },
+            },
+            'Status': {
+              select: { name: 'New' },
+            },
+            'Lead source': {
+              rich_text: [{ text: { content: 'Website Assistant' } }],
+            },
+            'Website exists': {
+              checkbox: false,
+            },
+            'Notes': {
+              rich_text: [{ text: { content: notes.slice(0, 2000) } }],
+            },
+          },
+        }),
+      });
+
+      const notionBody = await notionResponse.json().catch(() => ({}));
+
+      if (!notionResponse.ok) {
+        console.error('Notion lead creation failed:', notionResponse.status, notionBody);
+        return res.status(502).json({
+          error: 'Unable to save the lead right now.',
         });
       }
 
       return res.status(201).json({
         success: true,
-        lead: newLead,
+        lead: {
+          id: notionBody.id,
+          customer_name: String(customer_name).trim(),
+          business_name: String(business_name).trim(),
+          recommended_package: cleanPackage,
+        },
       });
     } catch (err) {
-      console.error('Error saving lead to cloud storage:', err);
+      console.error('Error saving lead to Notion:', err);
       return res.status(500).json({
-        error: "Failed to save lead record.",
+        error: 'Failed to save lead record.',
       });
     }
   });
