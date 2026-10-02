@@ -4,7 +4,6 @@ import {
   RotateCcw,
   Sparkles,
   Globe,
-  Code2,
   AlertCircle,
   HelpCircle,
   ShoppingBag,
