@@ -606,9 +606,11 @@ export default function App() {
       <header className="bg-white border-b border-slate-200 shadow-xs z-10 shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20 text-white font-bold text-lg">
-              <Code2 className="w-5 h-5" />
-            </div>
+            <img
+              src="/pj-web-development-logo.webp"
+              alt="PJ Web Development"
+              className="w-10 h-10 rounded-xl object-cover shadow-md shadow-orange-500/20"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-slate-900 text-lg leading-tight tracking-tight">
