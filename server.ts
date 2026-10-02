@@ -487,7 +487,7 @@ Immediately after the summary block, write:
             'Status': {
               select: { name: 'New' },
             },
-            'Lead source': {
+            'How we found them': {
               rich_text: [{ text: { content: 'Website Assistant' } }],
             },
             'Website exists': {
