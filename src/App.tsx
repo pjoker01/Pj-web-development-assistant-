@@ -245,7 +245,7 @@ const FRIENDLY_ERROR_MESSAGE = "I'm having a temporary connection problem. Pleas
 
 const SUGGESTIONS = [
   {
-    icon: <Globe className="w-4 h-4 text-blue-500" />,
+    icon: <Globe className="w-4 h-4 text-amber-300" />,
     text: "I need a website for my business",
   },
   {
@@ -561,7 +561,7 @@ export default function App() {
             const bulletText = trimmed.replace(/^[\*\-•]\s*/, '');
             return (
               <div key={idx} className="flex items-start gap-2 pl-1">
-                <span className="text-blue-500 mt-1 font-bold text-xs">●</span>
+                <span className="text-amber-300 mt-1 font-bold text-xs">●</span>
                 <span>{renderInlineStyles(bulletText)}</span>
               </div>
             );
@@ -572,7 +572,7 @@ export default function App() {
           if (numberedMatch) {
             return (
               <div key={idx} className="flex items-start gap-2 pl-1">
-                <span className="font-semibold text-blue-600 min-w-[1.2rem] text-sm">{numberedMatch[1]}.</span>
+                <span className="font-semibold text-amber-300 min-w-[1.2rem] text-sm">{numberedMatch[1]}.</span>
                 <span>{renderInlineStyles(numberedMatch[2])}</span>
               </div>
             );
@@ -590,7 +590,7 @@ export default function App() {
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return (
-          <strong key={i} className="font-semibold text-slate-900">
+          <strong key={i} className="font-semibold text-slate-100">
             {part.slice(2, -2)}
           </strong>
         );
@@ -600,9 +600,9 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen max-h-screen bg-slate-50 text-slate-800 antialiased font-sans">
+    <div className="flex flex-col h-screen max-h-screen bg-[#080b11] text-slate-200 antialiased font-sans">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 shadow-xs z-10 shrink-0">
+      <header className="bg-[#0c1018] border-b border-white/10 shadow-lg shadow-black/20 z-10 shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
@@ -612,15 +612,15 @@ export default function App() {
             />
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="font-bold text-slate-900 text-lg leading-tight tracking-tight">
+                <h1 className="font-bold text-slate-100 text-lg leading-tight tracking-tight">
                   PJ Web Development
                 </h1>
-                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-amber-300 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   Assistant Online
                 </span>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 PJ Web Development Assistant &bull; Website Advisor
               </p>
             </div>
@@ -629,7 +629,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleResetConversation}
-              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 px-3 py-1.5 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-slate-300 hover:text-slate-100 bg-[#0c1018]/5 hover:bg-[#0c1018]/10 active:bg-[#0c1018]/15 px-3 py-1.5 rounded-lg transition-colors"
               title="Start a new conversation"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -642,16 +642,16 @@ export default function App() {
       {/* Main Chat Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-4xl w-full mx-auto">
         {/* Intro Banner */}
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-100 rounded-2xl p-4 sm:p-5 text-sm text-slate-700 mb-6 shadow-xs">
+        <div className="bg-gradient-to-r from-amber-400/10 via-[#111722] to-[#080b11] border border-amber-400/20 rounded-2xl p-4 sm:p-5 text-sm text-slate-300 mb-6 shadow-xs">
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-blue-600/10 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-amber-400/10 text-amber-300 shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div className="space-y-1">
-              <h2 className="font-semibold text-slate-900 text-base">
+              <h2 className="font-semibold text-slate-100 text-base">
                 Welcome to PJ Web Development
               </h2>
-              <p className="text-slate-600 text-sm leading-relaxed">
+              <p className="text-slate-300 text-sm leading-relaxed">
                 Need a new website or wondering what solution works best for your business? Chat with our virtual assistant to explore design options, functionality, and recommendations.
               </p>
             </div>
@@ -668,7 +668,7 @@ export default function App() {
                 className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
               >
                 {!isUser && (
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-400 to-orange-500 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
                     <Sparkles className="w-4 h-4" />
                   </div>
                 )}
@@ -676,21 +676,21 @@ export default function App() {
                 <div
                   className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-xs ${
                     isUser
-                      ? 'bg-blue-600 text-white rounded-br-xs'
-                      : 'bg-white border border-slate-200/80 text-slate-800 rounded-bl-xs'
+                      ? 'bg-amber-400 text-black rounded-br-xs'
+                      : 'bg-[#0c1018] border border-white/10 text-slate-200 rounded-bl-xs'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-4 mb-1">
                     <span
                       className={`text-[11px] font-semibold tracking-wide uppercase ${
-                        isUser ? 'text-blue-100' : 'text-slate-400'
+                        isUser ? 'text-amber-950' : 'text-slate-400'
                       }`}
                     >
                       {isUser ? 'You' : 'PJ Assistant'}
                     </span>
                     <span
                       className={`text-[10px] ${
-                        isUser ? 'text-blue-200' : 'text-slate-400'
+                        isUser ? 'text-amber-200' : 'text-slate-400'
                       }`}
                     >
                       {message.timestamp}
@@ -717,31 +717,31 @@ export default function App() {
                         const saveState = leadSaveStates[message.id];
 
                         return (
-                          <div className="mt-4 pt-3.5 border-t border-slate-200/90 space-y-3">
-                            <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-xl p-3.5 space-y-2.5">
+                          <div className="mt-4 pt-3.5 border-t border-white/10 space-y-3">
+                            <div className="bg-amber-400/5 border border-amber-400/20 rounded-xl p-3.5 space-y-2.5">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div className="flex items-center gap-2 text-emerald-900 font-semibold text-xs sm:text-sm">
-                                  <WhatsAppIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <div className="flex items-center gap-2 text-amber-200 font-semibold text-xs sm:text-sm">
+                                  <WhatsAppIcon className="w-4 h-4 text-amber-300 shrink-0" />
                                   <span>Send Project Details to PJ Web Development</span>
                                 </div>
                                 {isComplete && saveState?.status === 'saved' && (
-                                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-full font-medium shadow-2xs">
-                                    <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-200 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-full font-medium shadow-2xs">
+                                    <Check className="w-3 h-3 text-amber-300" />
                                     Lead saved ✓
                                   </span>
                                 )}
                                 {isComplete && saveState?.status === 'failed' && (
-                                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-800 bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded-full font-medium shadow-2xs">
+                                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-200 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-full font-medium shadow-2xs">
                                     Cloud save unavailable
                                   </span>
                                 )}
                               </div>
-                              <p className="text-xs text-emerald-700 leading-relaxed">
+                              <p className="text-xs text-amber-300 leading-relaxed">
                                 Ready to continue? Tap below to open WhatsApp addressed to PJ Web Development (<span className="font-semibold">+27 61 014 0065</span>) with your complete project details pre-filled.
                               </p>
 
                               {isComplete && saveState?.status === 'failed' && (
-                                <div className="bg-amber-50/90 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800 flex items-start gap-2">
+                                <div className="bg-amber-400/5 border border-amber-400/20 rounded-lg p-2.5 text-xs text-amber-200 flex items-start gap-2">
                                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                                   <p className="leading-relaxed">
                                     Your project summary is ready, but I couldn't save a cloud copy right now. You can still copy the summary or send it through WhatsApp.
@@ -750,10 +750,10 @@ export default function App() {
                               )}
 
                               {!isComplete && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800 flex items-start gap-2">
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-200 flex items-start gap-2">
                                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                                   <div>
-                                    <p className="font-semibold text-amber-900">Project details incomplete</p>
+                                    <p className="font-semibold text-amber-200">Project details incomplete</p>
                                     <p className="text-amber-700 mt-0.5 leading-relaxed">
                                       Missing: {missingFields.join(', ')}. Please provide these details in the chat before sending.
                                     </p>
@@ -776,7 +776,7 @@ export default function App() {
                                   <button
                                     type="button"
                                     disabled
-                                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-400 rounded-xl font-medium text-xs sm:text-sm cursor-not-allowed shadow-none"
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 text-slate-500 rounded-xl font-medium text-xs sm:text-sm cursor-not-allowed shadow-none"
                                     title={`Missing: ${missingFields.join(', ')}`}
                                   >
                                     <WhatsAppIcon className="w-4 h-4 fill-current opacity-50" />
@@ -787,16 +787,16 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => handleCopySummary(message.id, whatsappMessage)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-2xs"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-[#0c1018] hover:bg-[#0c1018]/10 active:bg-[#0c1018]/15 border border-white/10 text-slate-300 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-2xs"
                                 >
                                   {copiedId === message.id ? (
                                     <>
-                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span className="text-emerald-700 font-medium">Copied!</span>
+                                      <Check className="w-3.5 h-3.5 text-amber-300" />
+                                      <span className="text-amber-300 font-medium">Copied!</span>
                                     </>
                                   ) : (
                                     <>
-                                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                      <Copy className="w-3.5 h-3.5 text-slate-400" />
                                       <span>Copy Summary</span>
                                     </>
                                   )}
@@ -804,7 +804,7 @@ export default function App() {
                               </div>
 
                               {hasConfirmed && (
-                                <div className="flex items-center gap-2 p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl text-xs text-emerald-800 font-medium">
+                                <div className="flex items-center gap-2 p-2.5 bg-amber-400/10 border border-amber-400/20 rounded-xl text-xs text-amber-200 font-medium">
                                   <span>WhatsApp opened with your project details ready to send. 👍</span>
                                 </div>
                               )}
@@ -817,7 +817,7 @@ export default function App() {
                 </div>
 
                 {isUser && (
-                  <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 shadow-xs mt-1 font-semibold text-xs">
+                  <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-300 flex items-center justify-center shrink-0 shadow-xs mt-1 font-semibold text-xs">
                     You
                   </div>
                 )}
@@ -828,16 +828,16 @@ export default function App() {
           {/* Loading indicator */}
           {isLoading && (
             <div className="flex gap-3 justify-start items-center">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-400 to-orange-500 text-white flex items-center justify-center shrink-0 shadow-xs">
                 <Sparkles className="w-4 h-4 animate-spin" />
               </div>
-              <div className="bg-white border border-slate-200/80 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs flex items-center gap-2">
+              <div className="bg-[#0c1018] border border-white/10 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs flex items-center gap-2">
                 <div className="flex items-center gap-1.5 py-1">
-                  <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 rounded-full bg-blue-600 animate-bounce"></div>
+                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 rounded-full bg-amber-400 animate-bounce"></div>
                 </div>
-                <span className="text-xs text-slate-500 font-medium pl-1">
+                <span className="text-xs text-slate-400 font-medium pl-1">
                   PJ Assistant is thinking...
                 </span>
               </div>
@@ -846,18 +846,18 @@ export default function App() {
 
           {/* Error Banner */}
           {error && (
-            <div className="flex items-center gap-3 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            <div className="flex items-center gap-3 p-3.5 bg-rose-400/5 border border-rose-400/20 rounded-xl text-rose-300 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0 text-red-500" />
               <div className="flex-1">
-                <p className="font-medium text-red-800">Connection notice</p>
-                <p className="text-xs text-red-600 mt-0.5">{error}</p>
+                <p className="font-medium text-rose-200">Connection notice</p>
+                <p className="text-xs text-rose-300 mt-0.5">{error}</p>
               </div>
               {lastFailedMessage && (
                 <button
                   type="button"
                   onClick={handleRetry}
                   disabled={isLoading}
-                  className="text-xs font-semibold bg-red-100 hover:bg-red-200 active:bg-red-300 px-3 py-1.5 rounded-lg transition-colors text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-xs font-semibold bg-rose-400/10 hover:bg-rose-400/15 active:bg-rose-400/20 px-3 py-1.5 rounded-lg transition-colors text-rose-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Retry
                 </button>
@@ -881,9 +881,9 @@ export default function App() {
                   type="button"
                   disabled={isLoading}
                   onClick={() => !isLoading && handleSend(item.text)}
-                  className="flex items-center gap-2.5 text-left p-2.5 rounded-xl bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-200 text-xs text-slate-700 hover:text-blue-900 transition-all shadow-xs group disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2.5 text-left p-2.5 rounded-xl bg-[#0c1018] hover:bg-amber-400/10 border border-white/10 hover:border-amber-400/30 text-xs text-slate-300 hover:text-amber-200 transition-all shadow-xs group disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <div className="p-1 rounded-md bg-slate-50 group-hover:bg-white shrink-0">
+                  <div className="p-1 rounded-md bg-[#0c1018]/5 group-hover:bg-[#0c1018] shrink-0">
                     {item.icon}
                   </div>
                   <span className="line-clamp-2">{item.text}</span>
@@ -895,7 +895,7 @@ export default function App() {
       </main>
 
       {/* Input Area */}
-      <footer className="bg-white border-t border-slate-200 p-3 sm:p-4 shrink-0 shadow-lg">
+      <footer className="bg-[#0c1018] border-t border-white/10 p-3 sm:p-4 shrink-0 shadow-lg">
         <div className="max-w-4xl mx-auto">
           <form
             onSubmit={(e) => {
@@ -915,7 +915,7 @@ export default function App() {
                 placeholder="Ask about website options, tell us about your business, or describe your project..."
                 rows={1}
                 disabled={isLoading}
-                className="w-full resize-none rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none transition-all max-h-32 min-h-[44px] disabled:bg-slate-50 disabled:text-slate-400"
+                className="w-full resize-none rounded-xl border border-white/15 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 focus:outline-none transition-all max-h-32 min-h-[44px] disabled:bg-[#0c1018]/5 disabled:text-slate-500"
                 style={{ height: 'auto', minHeight: '44px' }}
               />
             </div>
@@ -923,7 +923,7 @@ export default function App() {
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="h-[44px] px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-slate-200 text-white disabled:text-slate-400 font-medium text-sm flex items-center justify-center gap-2 shadow-xs transition-colors shrink-0 disabled:cursor-not-allowed"
+              className="h-[44px] px-4 rounded-xl bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:bg-white/10 text-white disabled:text-slate-500 font-medium text-sm flex items-center justify-center gap-2 shadow-xs transition-colors shrink-0 disabled:cursor-not-allowed"
             >
               <span>Send</span>
               <Send className="w-4 h-4" />
@@ -931,7 +931,7 @@ export default function App() {
           </form>
 
           <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-slate-400">
-            <span>Press <kbd className="px-1 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-600 font-mono">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-600 font-mono">Shift+Enter</kbd> for a new line</span>
+            <span>Press <kbd className="px-1 py-0.5 bg-[#0c1018]/5 border border-white/10 rounded text-slate-300 font-mono">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-[#0c1018]/5 border border-white/10 rounded text-slate-300 font-mono">Shift+Enter</kbd> for a new line</span>
             <span className="hidden sm:inline">Powered by Gemini &bull; PJ Web Development</span>
           </div>
         </div>
