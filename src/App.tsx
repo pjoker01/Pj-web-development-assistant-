@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import PJReviewsSection from './components/PJReviewsSection';
 import {
   Send,
   RotateCcw,
@@ -892,6 +893,7 @@ export default function App() {
             </div>
           </div>
         )}
+      <PJReviewsSection />
       </main>
 
       {/* Input Area */}
