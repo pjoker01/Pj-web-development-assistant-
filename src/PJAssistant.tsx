@@ -60,15 +60,16 @@ export default function PJAssistant() {
     if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
   };
 
-  const startVoice = async () => {
+  const startConversation = async (textOnly = false) => {
     if (conversationRef.current || mode === 'connecting') return;
     setError(''); setMode('connecting'); setStatus('Waking up the sunset…');
     try {
       const conversation = await Conversation.startSession({
         agentId: AGENT_ID,
+        textOnly,
         onStatusChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.status;
-          if (next === 'connected') { setMode('listening'); setStatus('Listening to you'); }
+          if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
           if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setStatus('Ready when you are'); }
         },
@@ -92,7 +93,7 @@ export default function PJAssistant() {
         }
       } as any);
       conversationRef.current = conversation;
-      setMode('listening'); setStatus('Listening to you');
+      setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you');
     } catch (e: any) {
       setMode('idle'); setStatus('Ready when you are');
       setError(e?.message || 'Could not start voice. Check microphone permission and try again.');
@@ -116,7 +117,7 @@ export default function PJAssistant() {
 
   const toggleText = () => {
     setTextMode(value => !value);
-    if (!conversationRef.current && mode === 'idle') void startVoice();
+    if (!conversationRef.current && mode === 'idle') void startConversation(true);
     window.setTimeout(() => inputRef.current?.focus(), 150);
   };
 
@@ -161,7 +162,7 @@ export default function PJAssistant() {
       <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{status}</div>
       <div className="pj-controls">
         <div className="pj-main-controls">
-          {mode === 'idle' ? <button className="pj-talk-button" onClick={startVoice}><Mic size={17} /> Start talking</button> : mode === 'connecting' ? <button className="pj-talk-button" disabled><Sparkles size={17} /> Connecting…</button> : <button className="pj-talk-button" onClick={endVoice}><MicOff size={17} /> End conversation</button>}
+          {mode === 'idle' ? <button className="pj-talk-button" onClick={() => startConversation(false)}><Mic size={17} /> Start talking</button> : mode === 'connecting' ? <button className="pj-talk-button" disabled><Sparkles size={17} /> Connecting…</button> : <button className="pj-talk-button" onClick={endVoice}><MicOff size={17} /> End conversation</button>}
           {mode !== 'idle' && mode !== 'connecting' && <button className="pj-end-button" aria-label="End conversation" onClick={endVoice}><PhoneOff size={17} /></button>}
         </div>
         {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder={conversationRef.current ? 'Type a message…' : 'Start talking first to open text chat…'} aria-label="Message PJ Assistant" disabled={!conversationRef.current} maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || !conversationRef.current} aria-label="Send message"><ArrowUp size={18} /></button></form>}
