@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { ArrowUpRight, Bot, CheckCircle2, MessageCircle, Mic, ShieldCheck, Sparkles } from 'lucide-react';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
@@ -31,7 +32,7 @@ export default function PJAssistant() {
     return () => { cancelled = true; };
   }, [date]);
 
-  const submitBooking = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBookingLoading(true); setBookingError(''); setBookingMessage('');
     try {
