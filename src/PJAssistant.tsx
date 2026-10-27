@@ -1,11 +1,53 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { ArrowUpRight, Bot, CheckCircle2, MessageCircle, Mic, ShieldCheck, Sparkles } from 'lucide-react';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
 const WIDGET_SCRIPT = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+const BOOKING_API = 'https://chat.pjwebdev.online/api/pj-assistant';
+type Slot = { start: string; end: string; available: boolean };
+const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
 
 export default function PJAssistant() {
   const widgetContainer = useRef<HTMLDivElement>(null);
+  const [date, setDate] = useState(localDate());
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerContact, setCustomerContact] = useState('');
+  const [projectNotes, setProjectNotes] = useState('');
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingMessage, setBookingMessage] = useState('');
+  const [bookingError, setBookingError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setSlots([]);
+    setSelectedSlot('');
+    setBookingError('');
+    fetch(`${BOOKING_API}/booking-availability?date=${encodeURIComponent(date)}`)
+      .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load availability.'); return body; })
+      .then(body => { if (!cancelled) setSlots(Array.isArray(body.slots) ? body.slots.filter((slot: Slot) => slot.available) : []); })
+      .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
+    return () => { cancelled = true; };
+  }, [date]);
+
+  const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBookingLoading(true); setBookingError(''); setBookingMessage('');
+    try {
+      if (!selectedSlot) throw new Error('Please choose an available appointment time.');
+      const response = await fetch(`${BOOKING_API}/booking-requests`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerName, customerContact, requestedStart: selectedSlot, serviceName: 'Website consultation', notes: projectNotes, idempotencyKey: `pjassistant-${crypto.randomUUID()}` })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to send your request.');
+      setBookingMessage(body.message || 'Request received. PJ will review it before confirming.');
+      setCustomerName(''); setCustomerContact(''); setProjectNotes(''); setSelectedSlot('');
+    } catch (error: any) { setBookingError(error.message || 'Unable to send your request. Please try again.'); }
+    finally { setBookingLoading(false); }
+  };
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -102,6 +144,41 @@ export default function PJAssistant() {
           </div>
         </div>
       </section>
+
+      <div id="book-consultation" className="relative z-10 mx-auto w-full max-w-3xl px-5 pb-16 sm:px-8">
+        <div className="overflow-hidden rounded-[1.75rem] border border-orange-200/20 bg-[#10141d]/95 p-6 shadow-2xl shadow-black/30 sm:p-8">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-300/10 text-orange-200"><CheckCircle2 size={21} /></div>
+            <div><h2 className="text-xl font-semibold">Book a project consultation</h2><p className="mt-1 text-sm leading-6 text-white/55">Choose an available time and send a request directly to PJ. Your appointment is only confirmed after PJ approves it.</p></div>
+          </div>
+          <form onSubmit={submitBooking} className="mt-6 grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-2 text-sm text-white/70">Preferred date
+              <input type="date" min={localDate()} value={date} onChange={e => setDate(e.target.value)} required className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
+            </label>
+            <label className="grid gap-2 text-sm text-white/70">Available time
+              <select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50">
+                <option value="">Choose a time</option>
+                {slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm text-white/70">Your name
+              <input value={customerName} onChange={e => setCustomerName(e.target.value)} minLength={2} maxLength={120} required placeholder="Full name" className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
+            </label>
+            <label className="grid gap-2 text-sm text-white/70">Phone or email
+              <input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="How PJ can reach you" className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
+            </label>
+            <label className="grid gap-2 text-sm text-white/70 sm:col-span-2">What would you like to discuss? <span className="text-xs text-white/35">(optional)</span>
+              <textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1000} rows={3} placeholder="Website, online store, AI assistant, or another project..." className="resize-y rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
+            </label>
+            {bookingError && <p role="alert" className="sm:col-span-2 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-200">{bookingError}{bookingError.includes('calendar') || bookingError.includes('availability') ? ' You can also contact PJ through the main website.' : ''}</p>}
+            {bookingMessage && <p role="status" className="sm:col-span-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-100">{bookingMessage}</p>}
+            {!bookingError && !slots.length && <p className="sm:col-span-2 text-xs text-white/40">No available times are currently listed for this date. Try another date.</p>}
+            <button type="submit" disabled={bookingLoading || !slots.length} className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-300 to-amber-200 px-5 py-3.5 text-sm font-semibold text-[#17100a] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50">{bookingLoading ? 'Sending request…' : 'Request consultation'} <ArrowUpRight size={16} /></button>
+          </form>
+          <p className="mt-4 text-xs leading-5 text-white/35">Submitting this form sends a booking request, not a confirmed appointment. Please do not include passwords or payment details.</p>
+        </div>
+      </div>
+
 
       <footer className="relative z-10 border-t border-white/[0.08] px-5 py-6 text-center text-xs text-white/35">
         © {new Date().getFullYear()} PJ Web Development · Your Vision. Our Code. Together Online.
