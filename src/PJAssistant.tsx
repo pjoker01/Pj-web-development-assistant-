@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ArrowUpRight, Bot, CheckCircle2, MessageCircle, Mic, ShieldCheck, Sparkles } from 'lucide-react';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
 const WIDGET_SCRIPT = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
 
 export default function PJAssistant() {
+  const widgetContainer = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const previousTitle = document.title;
     document.title = 'PJ Assistant | PJ Web Development';
@@ -16,7 +18,11 @@ export default function PJAssistant() {
       script.type = 'text/javascript';
       document.body.appendChild(script);
     }
+    const widget = document.createElement('elevenlabs-convai');
+    widget.setAttribute('agent-id', AGENT_ID);
+    widgetContainer.current?.appendChild(widget);
     return () => {
+      widget.remove();
       document.title = previousTitle;
     };
   }, []);
@@ -102,7 +108,7 @@ export default function PJAssistant() {
       </footer>
 
       {/** Official ElevenLabs widget. Voice and text are enabled in the agent's widget configuration. */}
-      <elevenlabs-convai agent-id={AGENT_ID}></elevenlabs-convai>
+      <div ref={widgetContainer} />
     </main>
   );
 }
