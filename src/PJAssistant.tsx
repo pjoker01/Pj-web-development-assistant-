@@ -81,7 +81,7 @@ export default function PJAssistant() {
         onMessage: (message: any) => {
           const text = message?.message || message?.text || '';
           const role = message?.source === 'user' || message?.role === 'user' ? 'user' : 'agent';
-          addLine(role, text);
+          if (role === 'agent') addLine('agent', text);
         },
         onUserTranscript: (transcript: any) => {
           const text = transcript?.message || transcript?.text || '';
