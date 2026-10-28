@@ -21,6 +21,7 @@ function SunsetOrb({ mode }: { mode: VoiceMode }) {
 
 export default function PJAssistant() {
   const conversationRef = useRef<any>(null);
+  const intentionalEndRef = useRef(false);
   const nextMessageId = useRef(1);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +82,18 @@ export default function PJAssistant() {
           const next = typeof event === 'string' ? event : event?.status;
           if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
+          if (next === 'disconnected') {
+            conversationRef.current = null;
+            setMode('idle');
+            setStatus(intentionalEndRef.current ? 'Ready when you are' : 'Live connection ended');
+            if (intentionalEndRef.current) {
+              intentionalEndRef.current = false;
+              setIsLiveMode(false);
+            } else {
+              setIsLiveMode(true);
+              setError('Live Talk disconnected. Check your connection and microphone permission, then tap Reconnect to try again.');
+            }
+          }
         },
         onModeChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.mode;
@@ -123,6 +135,7 @@ export default function PJAssistant() {
   const endVoice = async () => {
     setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
+    intentionalEndRef.current = true;
     try { await current?.endSession(); } catch { /* Already ended. */ }
     setMode('idle'); setStatus('Ready when you are');
   };
@@ -235,7 +248,7 @@ export default function PJAssistant() {
     </header>
     <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
       {isLiveMode ? <>
-        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
+        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><div style={{display:"flex",gap:8,alignItems:"center"}}>{mode === "idle" && <button className="pj-quiet-button" onClick={() => { setError(""); void startConversation(false); }}><AudioLines size={14} /> Reconnect</button>}<button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div></div>
         <SunsetOrb mode={mode} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
