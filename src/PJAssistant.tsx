@@ -30,6 +30,7 @@ export default function PJAssistant() {
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
   const [textMode, setTextMode] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
@@ -129,15 +130,29 @@ export default function PJAssistant() {
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text || sending) return;
     setDraft('');
+    setSending(true);
+    setError('');
+    addLine('user', text);
     try {
-      if (!conversationRef.current) await startConversation(true);
-      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
-      addLine('user', text);
-      await conversationRef.current.sendUserMessage(text);
+      const history = messages.map(line => ({ role: line.role === 'agent' ? 'model' : 'user', content: line.text }));
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not reply just now. Please try again.');
+      }
+      addLine('agent', body.reply);
+    } catch (e: any) {
+      setError(e?.message || 'That message could not be sent. Please try again.');
+      setDraft(text);
+    } finally {
+      setSending(false);
     }
-    catch (e: any) { setError(e?.message || 'That message could not be sent. Please try again.'); setDraft(text); }
   };
 
   const toggleText = () => {
@@ -229,7 +244,7 @@ export default function PJAssistant() {
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
-          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>}
+          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || sending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
       </> : <>
