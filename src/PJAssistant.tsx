@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Conversation } from '@elevenlabs/client';
-import { ArrowLeft, ArrowUp, CalendarDays, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, AudioLines, CalendarDays, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
@@ -31,6 +31,8 @@ export default function PJAssistant() {
   const [messages, setMessages] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState('');
   const [textMode, setTextMode] = useState(false);
+  const [isDictating, setIsDictating] = useState(false);
+  const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
@@ -86,7 +88,7 @@ export default function PJAssistant() {
           if (role === 'agent') addLine('agent', text);
         },
         onUserTranscript: (transcript: any) => {
-          const text = transcript?.message || transcript?.text || '';
+          const text = transcript?.user_transcription_event?.user_transcript || transcript?.transcription_event?.user_transcript || transcript?.message || transcript?.text || transcript?.transcript || '';
           if (text) addLine('user', text);
         },
         onError: (event: any) => {
@@ -136,6 +138,41 @@ export default function PJAssistant() {
   const toggleText = () => {
     setTextMode(value => !value);
     window.setTimeout(() => inputRef.current?.focus(), 150);
+  };
+
+  const toggleDictation = () => {
+    if (isDictating) {
+      try { speechRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+      setIsDictating(false);
+      return;
+    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Voice typing is not supported in this browser. Try your phone keyboard microphone instead.');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      speechRecognitionRef.current = recognition;
+      recognition.lang = navigator.language || 'en-ZA';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.onstart = () => { setIsDictating(true); setError(''); };
+      recognition.onresult = (event: any) => {
+        let spoken = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) spoken += event.results[i][0]?.transcript || '';
+        if (spoken.trim()) setDraft(previous => (previous ? previous + ' ' : '') + spoken.trim());
+      };
+      recognition.onerror = (event: any) => {
+        setIsDictating(false);
+        if (event?.error !== 'no-speech' && event?.error !== 'aborted') setError('Microphone typing could not start. Check browser microphone permission.');
+      };
+      recognition.onend = () => setIsDictating(false);
+      recognition.start();
+    } catch {
+      setIsDictating(false);
+      setError('Microphone typing could not start. Check browser microphone permission.');
+    }
   };
 
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
@@ -189,8 +226,12 @@ export default function PJAssistant() {
         </div>
         {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
         <div className="pj-chat-compose">
-          <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>
-          <button className="pj-live-launch" onClick={switchToLive} disabled={mode === 'connecting'}><Mic size={16} /> Live Talk</button>
+          <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
+            <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
+            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} aria-label={isDictating ? 'Stop voice typing' : 'Dictate a message'} title={isDictating ? 'Stop voice typing' : 'Dictate a message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
+            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} disabled={mode === 'connecting'} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
+            <button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button>
+          </form>
           <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
         </div>
         <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><button onClick={() => setBookingOpen(true)}>Book a consultation</button></footer>
