@@ -88,7 +88,7 @@ export default function PJAssistant() {
           if (role === 'agent') addLine('agent', text);
         },
         onUserTranscript: (transcript: any) => {
-          const text = transcript?.user_transcription_event?.user_transcript || transcript?.transcription_event?.user_transcript || transcript?.message || transcript?.text || transcript?.transcript || '';
+          const text = typeof transcript === 'string' ? transcript : transcript?.user_transcription_event?.user_transcript || transcript?.transcription_event?.user_transcript || transcript?.message || transcript?.text || transcript?.transcript || '';
           if (text) addLine('user', text);
         },
         onError: (event: any) => {
