@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Conversation } from '@elevenlabs/client';
-import { ArrowLeft, ArrowUp, AudioLines, CalendarDays, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
@@ -14,7 +14,7 @@ const localDate = () => { const d = new Date(); return [d.getFullYear(), String(
 function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
     <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
-    <div className="sun-orb"><div className="sun-gloss" /><div className="sun-horizon" /><div className="sun-stripe stripe-one" /><div className="sun-stripe stripe-two" /><div className="sun-stripe stripe-three" /></div>
+    <div className="sun-orb"><div className="sun-corona" /><div className="sun-gloss" /><div className="sun-plasma plasma-one" /><div className="sun-plasma plasma-two" /><div className="sun-limb" /></div>
     <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
   </div>;
 }
@@ -39,6 +39,11 @@ export default function PJAssistant() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [businessType, setBusinessType] = useState('');
+  const [projectLocation, setProjectLocation] = useState('');
+  const [projectGoal, setProjectGoal] = useState('');
+  const [projectPackage, setProjectPackage] = useState('');
   const [customerContact, setCustomerContact] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -178,16 +183,26 @@ export default function PJAssistant() {
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBookingLoading(true); setBookingError(''); setBookingMessage('');
     try {
-      if (!selectedSlot) throw new Error('Please choose an available appointment time.');
-      const response = await fetch(BOOKING_API + '/booking-requests', {
+      const features = [businessType, projectPackage ? 'Budget preference: ' + projectPackage : 'Budget: not sure yet'];
+      const response = await fetch('/api/leads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerName, customerContact, requestedStart: selectedSlot, serviceName: 'Website consultation', notes: projectNotes, idempotencyKey: 'pjassistant-' + crypto.randomUUID() })
+        body: JSON.stringify({
+          customer_name: customerName.trim(),
+          business_name: businessName.trim(),
+          business_type: businessType,
+          location: projectLocation.trim(),
+          customer_whatsapp: customerContact.trim(),
+          website_goal: projectGoal.trim(),
+          requested_features: features,
+          recommended_package: projectPackage || 'Standard',
+          additional_requirements: projectNotes.trim() || 'No extra details supplied',
+        })
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || 'Unable to send your request.');
-      setBookingMessage(body.message || 'Request received. PJ will review it before confirming.');
-      setCustomerName(''); setCustomerContact(''); setProjectNotes(''); setSelectedSlot('');
-    } catch (e: any) { setBookingError(e?.message || 'Unable to send your request. Please try again.'); }
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success !== true) throw new Error(body.error || 'Your project enquiry could not be saved. Please try again.');
+      setBookingMessage('Your project enquiry has been sent. PJ will review it and follow up.');
+      setCustomerName(''); setBusinessName(''); setBusinessType(''); setProjectLocation(''); setProjectGoal(''); setCustomerContact(''); setProjectNotes(''); setProjectPackage('');
+    } catch (e: any) { setBookingError(e?.message || 'Unable to send your project enquiry. Please try again.'); }
     finally { setBookingLoading(false); }
   };
 
@@ -201,7 +216,7 @@ export default function PJAssistant() {
     </div>}
     <header className="pj-topbar">
       <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
-      <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><CalendarDays size={14} /> Book PJ</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
+      <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
     <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
       {isLiveMode ? <>
@@ -239,19 +254,21 @@ export default function PJAssistant() {
     </section>
     {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
       <section className="pj-booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}><div><p style={{ margin: 0, color: '#ffbd82', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase' }}>Next step</p><h2 id="booking-title" style={{ margin: '7px 0', fontSize: 23, letterSpacing: '-.04em' }}>Book a consultation</h2><p style={{ margin: 0, color: '#b7a7a0', fontSize: 12, lineHeight: 1.7 }}>Choose a time and send a request. Your appointment is only confirmed after PJ approves it.</p></div><button className="pj-quiet-button" onClick={() => setBookingOpen(false)} aria-label="Close booking form"><X size={16} /></button></div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}><div><p style={{ margin: 0, color: '#ffbd82', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase' }}>Let's build something</p><h2 id="booking-title" style={{ margin: '7px 0', fontSize: 23, letterSpacing: '-.04em' }}>Send Your Project</h2><p style={{ margin: 0, color: '#b7a7a0', fontSize: 12, lineHeight: 1.7 }}>Tell me the essentials. PJ will review your idea and follow up with the next steps.</p></div><button className="pj-quiet-button" onClick={() => setBookingOpen(false)} aria-label="Close project form"><X size={16} /></button></div>
         <form onSubmit={submitBooking} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12, marginTop: 20 }}>
-          <label>Preferred date<input type="date" min={localDate()} value={date} onChange={e => setDate(e.target.value)} required /></label>
-          <label>Available time<select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required><option value="">Choose a time</option>{slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</option>)}</select></label>
           <label>Your name<input value={customerName} onChange={e => setCustomerName(e.target.value)} minLength={2} maxLength={120} required placeholder="Full name" /></label>
-          <label>Phone or email<input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="How PJ can reach you" /></label>
-          <label style={{ gridColumn: '1 / -1' }}>What would you like to discuss? (optional)<textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1000} rows={3} placeholder="Website, online store, AI assistant, or another project…" /></label>
+          <label>Business or project name<input value={businessName} onChange={e => setBusinessName(e.target.value)} minLength={2} maxLength={160} required placeholder="Business name or project title" /></label>
+          <label>Project type<select value={businessType} onChange={e => setBusinessType(e.target.value)} required><option value="">Choose a project</option><option>Business website</option><option>Online store</option><option>AI chatbot / assistant</option><option>Web app or dashboard</option><option>Website redesign</option><option>Other digital project</option></select></label>
+          <label>Your location<input value={projectLocation} onChange={e => setProjectLocation(e.target.value)} minLength={2} maxLength={120} required placeholder="City or area" /></label>
+          <label>Phone, WhatsApp or email<input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="Best way to reach you" /></label>
+          <label>Budget range<select value={projectPackage} onChange={e => setProjectPackage(e.target.value)} required><option value="">Not sure yet</option><option>Starter</option><option>Standard</option><option>Premium</option><option>Custom quote</option></select></label>
+          <label style={{ gridColumn: '1 / -1' }}>What do you want to achieve?<textarea value={projectGoal} onChange={e => setProjectGoal(e.target.value)} minLength={10} maxLength={1200} rows={3} required placeholder="Tell me what you want built and what it should help you do…" /></label>
+          <label style={{ gridColumn: '1 / -1' }}>Extra details (optional)<textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1200} rows={2} placeholder="Features, deadline, existing website, or anything else useful…" /></label>
           {bookingError && <p role="alert" style={{ gridColumn: '1 / -1', color: '#ffb3a4', fontSize: 12 }}>{bookingError}</p>}
           {bookingMessage && <p role="status" style={{ gridColumn: '1 / -1', color: '#a7f3d0', fontSize: 12 }}>{bookingMessage}</p>}
-          {!bookingError && !slots.length && <p style={{ gridColumn: '1 / -1', color: '#b7a7a0', fontSize: 11 }}>No available times are currently listed for this date. Try another date.</p>}
-          <button className="pj-booking-submit" type="submit" disabled={bookingLoading || !slots.length}>{bookingLoading ? 'Sending request…' : 'Request consultation'}</button>
+          <button className="pj-booking-submit" type="submit" disabled={bookingLoading}>{bookingLoading ? 'Sending project…' : 'Send Project Enquiry'}</button>
         </form>
-        <p style={{ color: '#8c7d7c', fontSize: 10, lineHeight: 1.6, marginBottom: 0 }}>Submitting this form sends a request, not a confirmed appointment. Please don't include passwords or payment details.</p>
+        <p style={{ color: '#8c7d7c', fontSize: 10, lineHeight: 1.6, marginBottom: 0 }}>Your details are used to respond to this enquiry. Please don't include passwords or payment details.</p>
       </section>
     </div>}
   </main>;
