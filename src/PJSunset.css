@@ -224,3 +224,20 @@
 }
 @keyframes coronaTurn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sun-corona { animation: none !important; } }
+
+/* Restored PJ's soft galaxy and drifting cloud atmosphere around the sun. */
+.pj-live-shell:after{content:"";position:absolute;inset:-12%;pointer-events:none;z-index:0;opacity:.9;background:
+radial-gradient(ellipse at 18% 32%,#6a4c8240 0%,transparent 26%),
+radial-gradient(ellipse at 78% 24%,#c16b4930 0%,transparent 22%),
+radial-gradient(ellipse at 72% 68%,#544a8b30 0%,transparent 27%),
+radial-gradient(ellipse at 28% 76%,#d0784930 0%,transparent 25%),
+radial-gradient(#ffe2c7aa .7px,transparent 1px);background-size:auto,auto,auto,auto,73px 67px;filter:blur(.3px)}
+.orb-stage{overflow:visible}
+.orb-nebula{position:absolute;z-index:0;pointer-events:none;border-radius:50%;filter:blur(24px);mix-blend-mode:screen;opacity:.6}
+.nebula-one{width:110%;height:48%;left:-10%;top:29%;transform:rotate(-18deg);background:radial-gradient(ellipse at 35% 50%,#ffb67a48 0%,#a26a9b35 28%,#6e70b72b 47%,transparent 72%);animation:nebulaDrift 13s ease-in-out infinite alternate}
+.nebula-two{width:98%;height:39%;right:-12%;top:44%;transform:rotate(21deg);background:radial-gradient(ellipse at 55% 50%,#ffe3c33d 0%,#d77c7d35 27%,#7264ad2c 49%,transparent 74%);animation:nebulaDrift 16s ease-in-out infinite alternate-reverse}
+.orb-cloud{position:absolute;z-index:3;pointer-events:none;border-radius:50%;filter:blur(13px);mix-blend-mode:screen}
+.cloud-back{width:120%;height:18%;left:-10%;top:58%;background:linear-gradient(90deg,transparent,#7e7bb34d 17%,#e4c9d5a6 36%,#fff0d5bd 49%,#dc9cbb88 65%,#9b8bc15c 82%,transparent);animation:cloudSlide 10s ease-in-out infinite alternate}
+.cloud-front{width:112%;height:15%;right:-7%;top:65%;opacity:.85;background:linear-gradient(90deg,transparent,#e7b3a96e 20%,#ffe7d8c7 43%,#d3b6e5a0 61%,#9a8fc55c 79%,transparent);animation:cloudSlide 8s ease-in-out infinite alternate-reverse}
+@keyframes nebulaDrift{from{transform:translate3d(-2%,-4%,0) rotate(-18deg) scale(.96)}to{transform:translate3d(3%,4%,0) rotate(-10deg) scale(1.05)}}
+@media(prefers-reduced-motion:reduce){.nebula-one,.nebula-two,.cloud-back,.cloud-front{animation:none}}
