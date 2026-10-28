@@ -9,7 +9,7 @@ const path = window.location.pathname.replace(/\/+$/, '') || '/';
 
 if (path === '/pj-control') {
   root.render(<Admin />);
-} else if (path === '/assistant') {
+} else if (path === '/' || path === '/assistant') {
   root.render(<PJAssistant />);
 } else {
   root.render(<App />);
