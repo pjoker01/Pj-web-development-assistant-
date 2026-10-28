@@ -102,6 +102,16 @@ export default function PJAssistant() {
     }
   };
 
+  const switchToLive = async () => {
+    if (conversationRef.current && !isLiveMode) {
+      const current = conversationRef.current;
+      conversationRef.current = null;
+      try { await current.endSession(); } catch { /* Text session may already have ended. */ }
+      setMode('idle');
+    }
+    await startConversation(false);
+  };
+
   const endVoice = async () => {
     setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
@@ -180,7 +190,7 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
         <div className="pj-chat-compose">
           <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>
-          <button className="pj-live-launch" onClick={() => startConversation(false)} disabled={mode === 'connecting'}><Mic size={16} /> Live Talk</button>
+          <button className="pj-live-launch" onClick={switchToLive} disabled={mode === 'connecting'}><Mic size={16} /> Live Talk</button>
           <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
         </div>
         <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><button onClick={() => setBookingOpen(true)}>Book a consultation</button></footer>
