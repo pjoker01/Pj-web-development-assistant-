@@ -88,12 +88,18 @@ export default function PJAssistant() {
           if (next === 'disconnected') {
             conversationRef.current = null;
             setMode('idle');
-            if (endRequestedRef.current) {
+            // Text-only sessions must never switch the visitor into Live Talk.
+            // The previous shared handler did that after any failed connection.
+            if (textOnly) {
+              setIsLiveMode(false);
+              setStatus('Text chat disconnected');
+              if (!endRequestedRef.current) {
+                setError(lastVoiceErrorRef.current || 'PJ Assistant could not connect. Please try again.');
+              }
+            } else if (endRequestedRef.current) {
               setIsLiveMode(false);
               setStatus('Ready when you are');
             } else {
-              // Keep the live screen open so a failed voice connection never
-              // silently throws the visitor back into text chat.
               setIsLiveMode(true);
               setStatus('Live Talk unavailable');
               setError(lastVoiceErrorRef.current || 'Live Talk disconnected before it could start. Please try again.');
