@@ -21,6 +21,7 @@ function SunsetOrb({ mode }: { mode: VoiceMode }) {
 
 export default function PJAssistant() {
   const conversationRef = useRef<any>(null);
+  const intentionalEndRef = useRef(false);
   const nextMessageId = useRef(1);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,6 +31,7 @@ export default function PJAssistant() {
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
   const [textMode, setTextMode] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
@@ -80,7 +82,18 @@ export default function PJAssistant() {
           const next = typeof event === 'string' ? event : event?.status;
           if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
+          if (next === 'disconnected') {
+            conversationRef.current = null;
+            setMode('idle');
+            setStatus(intentionalEndRef.current ? 'Ready when you are' : 'Live connection ended');
+            if (intentionalEndRef.current) {
+              intentionalEndRef.current = false;
+              setIsLiveMode(false);
+            } else {
+              setIsLiveMode(true);
+              setError('Live Talk disconnected. Check your connection and microphone permission, then tap Reconnect to try again.');
+            }
+          }
         },
         onModeChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.mode;
@@ -122,6 +135,7 @@ export default function PJAssistant() {
   const endVoice = async () => {
     setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
+    intentionalEndRef.current = true;
     try { await current?.endSession(); } catch { /* Already ended. */ }
     setMode('idle'); setStatus('Ready when you are');
   };
@@ -129,15 +143,29 @@ export default function PJAssistant() {
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text || sending) return;
     setDraft('');
+    setSending(true);
+    setError('');
+    addLine('user', text);
     try {
-      if (!conversationRef.current) await startConversation(true);
-      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
-      addLine('user', text);
-      await conversationRef.current.sendUserMessage(text);
+      const history = messages.map(line => ({ role: line.role === 'agent' ? 'model' : 'user', content: line.text }));
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not reply just now. Please try again.');
+      }
+      addLine('agent', body.reply);
+    } catch (e: any) {
+      setError(e?.message || 'That message could not be sent. Please try again.');
+      setDraft(text);
+    } finally {
+      setSending(false);
     }
-    catch (e: any) { setError(e?.message || 'That message could not be sent. Please try again.'); setDraft(text); }
   };
 
   const toggleText = () => {
@@ -220,7 +248,7 @@ export default function PJAssistant() {
     </header>
     <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
       {isLiveMode ? <>
-        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
+        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><div style={{display:"flex",gap:8,alignItems:"center"}}>{mode === "idle" && <button className="pj-quiet-button" onClick={() => { setError(""); void startConversation(false); }}><AudioLines size={14} /> Reconnect</button>}<button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div></div>
         <SunsetOrb mode={mode} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
@@ -229,7 +257,7 @@ export default function PJAssistant() {
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
-          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>}
+          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || sending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
       </> : <>

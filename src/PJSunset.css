@@ -224,3 +224,57 @@
 }
 @keyframes coronaTurn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sun-corona { animation: none !important; } }
+
+
+/* Restore the deep-space atmosphere and soft cloud banks around the sun. */
+.pj-live-shell {
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(57,31,55,.72), rgba(20,18,34,.66) 32%, rgba(8,10,19,.96) 72%),
+    radial-gradient(ellipse at 16% 22%, rgba(52,68,119,.28), transparent 34%),
+    radial-gradient(ellipse at 84% 30%, rgba(137,54,74,.2), transparent 32%),
+    radial-gradient(ellipse at 70% 82%, rgba(62,47,109,.2), transparent 36%), #07080d;
+}
+.pj-live-shell:after {
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.8;
+  background:
+    radial-gradient(ellipse at 18% 54%, rgba(90,114,170,.13), transparent 32%),
+    radial-gradient(ellipse at 82% 60%, rgba(174,91,123,.1), transparent 30%),
+    radial-gradient(1px 1px at 8% 18%, #fff0d0 45%, transparent 100%),
+    radial-gradient(1px 1px at 19% 37%, #d8e1ff 45%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 31% 12%, #ffecd2 45%, transparent 100%),
+    radial-gradient(1px 1px at 44% 28%, #fff5e2 45%, transparent 100%),
+    radial-gradient(1px 1px at 59% 15%, #e1e2ff 45%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 73% 36%, #ffe2d1 45%, transparent 100%),
+    radial-gradient(1px 1px at 91% 21%, #ffeeda 45%, transparent 100%),
+    radial-gradient(1px 1px at 84% 78%, #d8e1ff 45%, transparent 100%),
+    radial-gradient(1px 1px at 14% 82%, #ffecd2 45%, transparent 100%),
+    radial-gradient(1px 1px at 56% 89%, #fff5e2 45%, transparent 100%);
+}
+.pj-live-shell:before {
+  opacity:.22;
+  background-image: radial-gradient(rgba(255,220,190,.8) .65px, transparent .85px), radial-gradient(rgba(157,175,230,.65) .7px, transparent .9px);
+  background-size:47px 47px, 83px 83px; background-position:0 0, 21px 31px;
+  mask-image:linear-gradient(transparent, #000 12%, #000 88%, transparent);
+}
+.pj-live-shell > * { position:relative; z-index:1; }
+.pj-intro {
+  background:
+    radial-gradient(ellipse at 50% 48%, rgba(91,47,73,.68), transparent 35%),
+    radial-gradient(ellipse at 20% 30%, rgba(62,82,142,.25), transparent 34%),
+    radial-gradient(ellipse at 82% 66%, rgba(162,72,88,.18), transparent 33%), #080910;
+}
+.mist {
+  width:118%; height:19%; border-radius:48%;
+  background:
+    radial-gradient(ellipse at 22% 52%, rgba(186,193,232,.16), transparent 42%),
+    radial-gradient(ellipse at 44% 48%, rgba(255,224,209,.32), transparent 45%),
+    radial-gradient(ellipse at 68% 53%, rgba(222,174,201,.22), transparent 42%),
+    radial-gradient(ellipse at 84% 47%, rgba(141,163,220,.13), transparent 36%);
+  filter:blur(15px); mix-blend-mode:screen; opacity:.94;
+}
+.mist-back { top:53%; left:-9%; width:124%; height:23%; animation:cloudSlide 24s ease-in-out infinite alternate; }
+.mist-front { top:62%; right:-14%; width:132%; height:25%; opacity:.8; filter:blur(19px); animation:cloudSlide 29s ease-in-out infinite alternate-reverse; }
+.pj-live-view .orb-stage .mist-back { top:53%; left:-10%; width:128%; height:23%; filter:blur(16px); }
+.pj-live-view .orb-stage .mist-front { top:62%; right:-13%; width:135%; height:25%; filter:blur(21px); }
+.sun-orb { box-shadow:0 0 24px rgba(255,198,104,.78), 0 0 58px rgba(255,125,67,.45), 0 0 115px rgba(215,63,110,.22), inset -15px -17px 32px rgba(38,13,38,.36), inset 8px 8px 22px rgba(255,245,202,.36); }
+@media (prefers-reduced-motion:reduce) { .mist,.mist-back,.mist-front { animation:none !important; } }
