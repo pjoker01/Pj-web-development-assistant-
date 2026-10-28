@@ -1,15 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowUpRight, Bot, CheckCircle2, MessageCircle, Mic, ShieldCheck, Sparkles } from 'lucide-react';
+import { Conversation } from '@elevenlabs/client';
+import { ArrowLeft, ArrowUp, AudioLines, CalendarDays, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
+import './PJSunset.css';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
-const WIDGET_SCRIPT = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
 const BOOKING_API = 'https://chat.pjwebdev.online/api/pj-assistant';
 type Slot = { start: string; end: string; available: boolean };
+type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
+type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
 
+function SunsetOrb({ mode }: { mode: VoiceMode }) {
+  return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
+    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
+    <div className="sun-orb"><div className="sun-gloss" /><div className="sun-horizon" /><div className="sun-stripe stripe-one" /><div className="sun-stripe stripe-two" /><div className="sun-stripe stripe-three" /></div>
+    <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
+  </div>;
+}
+
 export default function PJAssistant() {
-  const widgetContainer = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<any>(null);
+  const nextMessageId = useRef(1);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [intro, setIntro] = useState(true);
+  const [isLiveMode, setIsLiveMode] = useState(false);
+  const [mode, setMode] = useState<VoiceMode>('idle');
+  const [status, setStatus] = useState('Ready when you are');
+  const [messages, setMessages] = useState<ChatLine[]>([]);
+  const [draft, setDraft] = useState('');
+  const [textMode, setTextMode] = useState(false);
+  const [isDictating, setIsDictating] = useState(false);
+  const speechRecognitionRef = useRef<any>(null);
+  const [error, setError] = useState('');
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState('');
@@ -20,172 +45,214 @@ export default function PJAssistant() {
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingError, setBookingError] = useState('');
 
+  useEffect(() => { const timer = window.setTimeout(() => setIntro(false), 5000); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages]);
   useEffect(() => {
     let cancelled = false;
-    setSlots([]);
-    setSelectedSlot('');
-    setBookingError('');
-    fetch(`${BOOKING_API}/booking-availability?date=${encodeURIComponent(date)}`)
+    setSlots([]); setSelectedSlot(''); setBookingError('');
+    fetch(BOOKING_API + '/booking-availability?date=' + encodeURIComponent(date))
       .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load availability.'); return body; })
       .then(body => { if (!cancelled) setSlots(Array.isArray(body.slots) ? body.slots.filter((slot: Slot) => slot.available) : []); })
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
     return () => { cancelled = true; };
   }, [date]);
+  useEffect(() => { document.title = 'PJ Assistant — Talk with PJ'; return () => { try { conversationRef.current?.endSession(); } catch { /* Already closed. */ } }; }, []);
+
+  const addLine = (role: ChatLine['role'], text: string) => {
+    const clean = text?.trim();
+    if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
+  };
+
+  const startConversation = async (textOnly = false) => {
+    if (conversationRef.current || mode === 'connecting') return;
+    setIsLiveMode(!textOnly);
+    setError(''); setMode('connecting'); setStatus('Waking up the sunset…');
+    try {
+      const conversation = await Conversation.startSession({
+        agentId: AGENT_ID,
+        textOnly,
+        onStatusChange: (event: any) => {
+          const next = typeof event === 'string' ? event : event?.status;
+          if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
+          if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
+          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
+        },
+        onModeChange: (event: any) => {
+          const next = typeof event === 'string' ? event : event?.mode;
+          if (next === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
+          else if (next === 'listening') { setMode('listening'); setStatus('Listening to you'); }
+        },
+        onMessage: (message: any) => {
+          const text = message?.message || message?.text || '';
+          const role = message?.source === 'user' || message?.role === 'user' ? 'user' : 'agent';
+          if (role === 'agent') addLine('agent', text);
+        },
+        onUserTranscript: (transcript: any) => {
+          const text = typeof transcript === 'string' ? transcript : transcript?.user_transcription_event?.user_transcript || transcript?.transcription_event?.user_transcript || transcript?.message || transcript?.text || transcript?.transcript || '';
+          if (text) addLine('user', text);
+        },
+        onError: (event: any) => {
+          const message = typeof event === 'string' ? event : event?.message || 'The voice connection was interrupted. Please try again.';
+          setError(message); setMode('idle'); setStatus('Connection interrupted');
+        }
+      } as any);
+      conversationRef.current = conversation;
+      setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you');
+    } catch (e: any) {
+      setMode('idle'); setStatus('Ready when you are');
+      setError(e?.message || 'Could not start voice. Check microphone permission and try again.');
+    }
+  };
+
+  const switchToLive = async () => {
+    if (conversationRef.current && !isLiveMode) {
+      const current = conversationRef.current;
+      conversationRef.current = null;
+      try { await current.endSession(); } catch { /* Text session may already have ended. */ }
+      setMode('idle');
+    }
+    await startConversation(false);
+  };
+
+  const endVoice = async () => {
+    setIsLiveMode(false);
+    const current = conversationRef.current; conversationRef.current = null;
+    try { await current?.endSession(); } catch { /* Already ended. */ }
+    setMode('idle'); setStatus('Ready when you are');
+  };
+
+  const sendText = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    setDraft('');
+    try {
+      if (!conversationRef.current) await startConversation(true);
+      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
+      addLine('user', text);
+      await conversationRef.current.sendUserMessage(text);
+    }
+    catch (e: any) { setError(e?.message || 'That message could not be sent. Please try again.'); setDraft(text); }
+  };
+
+  const toggleText = () => {
+    setTextMode(value => !value);
+    window.setTimeout(() => inputRef.current?.focus(), 150);
+  };
+
+  const toggleDictation = () => {
+    if (isDictating) {
+      try { speechRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+      setIsDictating(false);
+      return;
+    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Voice typing is not supported in this browser. Try your phone keyboard microphone instead.');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      speechRecognitionRef.current = recognition;
+      recognition.lang = navigator.language || 'en-ZA';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.onstart = () => { setIsDictating(true); setError(''); };
+      recognition.onresult = (event: any) => {
+        let spoken = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) spoken += event.results[i][0]?.transcript || '';
+        if (spoken.trim()) setDraft(previous => (previous ? previous + ' ' : '') + spoken.trim());
+      };
+      recognition.onerror = (event: any) => {
+        setIsDictating(false);
+        if (event?.error !== 'no-speech' && event?.error !== 'aborted') setError('Microphone typing could not start. Check browser microphone permission.');
+      };
+      recognition.onend = () => setIsDictating(false);
+      recognition.start();
+    } catch {
+      setIsDictating(false);
+      setError('Microphone typing could not start. Check browser microphone permission.');
+    }
+  };
 
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBookingLoading(true); setBookingError(''); setBookingMessage('');
+    event.preventDefault(); setBookingLoading(true); setBookingError(''); setBookingMessage('');
     try {
       if (!selectedSlot) throw new Error('Please choose an available appointment time.');
-      const response = await fetch(`${BOOKING_API}/booking-requests`, {
+      const response = await fetch(BOOKING_API + '/booking-requests', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerName, customerContact, requestedStart: selectedSlot, serviceName: 'Website consultation', notes: projectNotes, idempotencyKey: `pjassistant-${crypto.randomUUID()}` })
+        body: JSON.stringify({ customerName, customerContact, requestedStart: selectedSlot, serviceName: 'Website consultation', notes: projectNotes, idempotencyKey: 'pjassistant-' + crypto.randomUUID() })
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'Unable to send your request.');
       setBookingMessage(body.message || 'Request received. PJ will review it before confirming.');
       setCustomerName(''); setCustomerContact(''); setProjectNotes(''); setSelectedSlot('');
-    } catch (error: any) { setBookingError(error.message || 'Unable to send your request. Please try again.'); }
+    } catch (e: any) { setBookingError(e?.message || 'Unable to send your request. Please try again.'); }
     finally { setBookingLoading(false); }
   };
 
-  useEffect(() => {
-    const previousTitle = document.title;
-    document.title = 'PJ Assistant | PJ Web Development';
-    let script = document.querySelector<HTMLScriptElement>(`script[src="${WIDGET_SCRIPT}"]`);
-    if (!script) {
-      script = document.createElement('script');
-      script.src = WIDGET_SCRIPT;
-      script.async = true;
-      script.type = 'text/javascript';
-      document.body.appendChild(script);
-    }
-    const widget = document.createElement('elevenlabs-convai');
-    widget.setAttribute('agent-id', AGENT_ID);
-    widgetContainer.current?.appendChild(widget);
-    return () => {
-      widget.remove();
-      document.title = previousTitle;
-    };
-  }, []);
-
-  return (
-    <main className="min-h-screen overflow-hidden bg-[#090b10] text-[#f7f5f0]">
-      <div className="pointer-events-none fixed inset-0" aria-hidden="true">
-        <div className="absolute -top-48 left-1/2 h-[34rem] w-[44rem] -translate-x-1/2 rounded-full bg-orange-500/10 blur-[120px]" />
-        <div className="absolute right-[-10rem] top-[35%] h-80 w-80 rounded-full bg-amber-400/5 blur-[100px]" />
-        <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
-      </div>
-
-      <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <a href="https://pjwebdev.online" className="flex items-center gap-3" aria-label="PJ Web Development homepage">
-          <img src="/pj-web-development-logo.webp" alt="PJ Web Development" className="h-11 w-11 rounded-xl object-contain" />
-          <span className="leading-tight">
-            <span className="block text-sm font-semibold tracking-wide">PJ WEB DEVELOPMENT</span>
-            <span className="mt-1 block text-xs text-white/45">Your Vision. Our Code.</span>
-          </span>
-        </a>
-        <a href="https://pjwebdev.online" className="hidden items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/75 transition hover:border-orange-300/40 hover:text-white sm:inline-flex">
-          Main website <ArrowUpRight size={15} />
-        </a>
-      </header>
-
-      <section className="relative z-10 mx-auto grid min-h-[calc(100svh-90px)] w-full max-w-6xl items-center gap-12 px-5 pb-28 pt-10 sm:px-8 md:grid-cols-[1.05fr_.95fr] md:pb-20 md:pt-4">
-        <div className="max-w-2xl">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-300/20 bg-orange-300/[0.07] px-3.5 py-2 text-xs font-medium text-orange-200">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-orange-300" />
-            Your digital business assistant
-          </div>
-          <h1 className="text-4xl font-semibold leading-[1.08] tracking-[-0.045em] sm:text-6xl">
-            Meet <span className="bg-gradient-to-r from-orange-300 via-amber-200 to-orange-500 bg-clip-text text-transparent">PJ Assistant.</span>
-            <br />Let's build your next idea.
-          </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-white/60 sm:text-lg sm:leading-8">
-            Get clear answers about PJ Web Development, explore digital solutions for your business, and start planning your project — through text or voice.
-          </p>
-
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <div className="flex gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-300/10 text-orange-200"><MessageCircle size={19} /></span>
-              <span><span className="block text-sm font-medium">Ask in your own words</span><span className="mt-1 block text-xs leading-5 text-white/45">Services, project ideas and support.</span></span>
-            </div>
-            <div className="flex gap-3 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-300/10 text-orange-200"><Mic size={19} /></span>
-              <span><span className="block text-sm font-medium">Talk by voice</span><span className="mt-1 block text-xs leading-5 text-white/45">Use the microphone option in the assistant.</span></span>
-            </div>
-          </div>
-
-          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs text-white/45">
-            <span className="inline-flex items-center gap-2"><CheckCircle2 size={15} className="text-orange-300" /> Friendly project guidance</span>
-            <span className="inline-flex items-center gap-2"><ShieldCheck size={15} className="text-orange-300" /> AI assistant, not a human</span>
-          </div>
+  return <main className="pj-live-shell">
+    {intro && <div className="pj-intro" role="status" aria-label="Introducing PJ Assistant">
+      <button className="pj-skip" onClick={() => setIntro(false)}>Skip intro <ArrowUp size={12} style={{ transform: 'rotate(45deg)', display: 'inline' }} /></button>
+      <div className="pj-intro-orb"><SunsetOrb mode="speaking" /></div>
+      <h2>Meet <span style={{ color: '#ffb978' }}>PJ Assistant</span></h2>
+      <p>Your ideas, your voice. Let's bring them to life.</p>
+      <div className="pj-intro-steps"><span className="pj-intro-step"><Mic size={13} /> Speak naturally</span><span className="pj-intro-step"><Volume2 size={13} /> Hear your answer</span><span className="pj-intro-step"><Sparkles size={13} /> Build your next idea</span></div>
+    </div>}
+    <header className="pj-topbar">
+      <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
+      <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><CalendarDays size={14} /> Book PJ</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
+    </header>
+    <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
+      {isLiveMode ? <>
+        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
+        <SunsetOrb mode={mode} />
+        <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
+          {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
+          <div ref={transcriptEndRef} />
         </div>
-
-        <div className="relative mx-auto w-full max-w-md">
-          <div className="absolute -inset-5 rounded-[2rem] bg-gradient-to-br from-orange-400/15 via-transparent to-amber-200/10 blur-2xl" />
-          <div className="relative overflow-hidden rounded-[1.75rem] border border-orange-200/20 bg-[#10141d]/95 p-6 shadow-2xl shadow-black/40 sm:p-8">
-            <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-orange-200/20 bg-gradient-to-br from-orange-300/20 to-amber-300/5 text-orange-200"><Bot size={28} /></div>
-              <div>
-                <p className="font-semibold">PJ Assistant</p>
-                <p className="mt-1 text-xs text-white/45">PJ Web Development</p>
-              </div>
-              <Sparkles size={18} className="ml-auto text-orange-200/70" />
-            </div>
-            <div className="mt-7 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-orange-200/80">Start a conversation</p>
-              <p className="mt-3 text-sm leading-6 text-white/70">Hi! I'm PJ Assistant, the AI business assistant for PJ Web Development. What are you looking to build or improve online?</p>
-            </div>
-            <p className="mt-5 text-sm leading-6 text-white/55">Open the assistant chat bubble to start a text conversation or switch to voice. If it doesn't appear, the assistant may not yet be enabled for public access.</p>
-            <div className="mt-6 flex items-start gap-2 rounded-xl bg-black/20 p-3 text-xs leading-5 text-white/40">
-              <ShieldCheck size={15} className="mt-0.5 shrink-0" /> Please share only the details needed for your enquiry. Do not enter passwords or payment details.
-            </div>
-            <div className="mt-5 flex items-center gap-2 text-xs text-white/35"><span className="h-1.5 w-1.5 rounded-full bg-orange-300" /> Text and voice powered by the PJ Assistant service</div>
-          </div>
+        <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
+        <div className="pj-controls pj-live-controls">
+          <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
+          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>}
+          <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
-      </section>
-
-      <div id="book-consultation" className="relative z-10 mx-auto w-full max-w-3xl px-5 pb-16 sm:px-8">
-        <div className="overflow-hidden rounded-[1.75rem] border border-orange-200/20 bg-[#10141d]/95 p-6 shadow-2xl shadow-black/30 sm:p-8">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-300/10 text-orange-200"><CheckCircle2 size={21} /></div>
-            <div><h2 className="text-xl font-semibold">Book a project consultation</h2><p className="mt-1 text-sm leading-6 text-white/55">Choose an available time and send a request directly to PJ. Your appointment is only confirmed after PJ approves it.</p></div>
-          </div>
-          <form onSubmit={submitBooking} className="mt-6 grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-2 text-sm text-white/70">Preferred date
-              <input type="date" min={localDate()} value={date} onChange={e => setDate(e.target.value)} required className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
-            </label>
-            <label className="grid gap-2 text-sm text-white/70">Available time
-              <select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50">
-                <option value="">Choose a time</option>
-                {slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm text-white/70">Your name
-              <input value={customerName} onChange={e => setCustomerName(e.target.value)} minLength={2} maxLength={120} required placeholder="Full name" className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
-            </label>
-            <label className="grid gap-2 text-sm text-white/70">Phone or email
-              <input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="How PJ can reach you" className="rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
-            </label>
-            <label className="grid gap-2 text-sm text-white/70 sm:col-span-2">What would you like to discuss? <span className="text-xs text-white/35">(optional)</span>
-              <textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1000} rows={3} placeholder="Website, online store, AI assistant, or another project..." className="resize-y rounded-xl border border-white/10 bg-[#090b10] px-3 py-3 text-white outline-none focus:border-orange-300/50" />
-            </label>
-            {bookingError && <p role="alert" className="sm:col-span-2 rounded-xl border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-200">{bookingError}{bookingError.includes('calendar') || bookingError.includes('availability') ? ' You can also contact PJ through the main website.' : ''}</p>}
-            {bookingMessage && <p role="status" className="sm:col-span-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-100">{bookingMessage}</p>}
-            {!bookingError && !slots.length && <p className="sm:col-span-2 text-xs text-white/40">No available times are currently listed for this date. Try another date.</p>}
-            <button type="submit" disabled={bookingLoading || !slots.length} className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-300 to-amber-200 px-5 py-3.5 text-sm font-semibold text-[#17100a] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50">{bookingLoading ? 'Sending request…' : 'Request consultation'} <ArrowUpRight size={16} /></button>
+      </> : <>
+        <div className="pj-chat-heading"><div className="pj-eyebrow">PJ WEB DEVELOPMENT</div><h1 className="pj-title">Hey there. <span>What's on your mind?</span></h1><p className="pj-subtitle">Ask a question or tell me what you want to build. You can type or switch to live voice anytime.</p></div>
+        <div className="pj-chat-window" aria-live="polite" aria-relevant="additions text">
+          {messages.length === 0 && <div className="pj-empty-chat"><div className="pj-chat-sun"><Sparkles size={24} /></div><strong>Let's start with your idea.</strong><span>Send a message below, or tap Live Talk to speak naturally.</span></div>}
+          {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
+          <div ref={transcriptEndRef} />
+        </div>
+        {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
+        <div className="pj-chat-compose">
+          <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
+            <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
+            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} aria-label={isDictating ? 'Stop voice typing' : 'Dictate a message'} title={isDictating ? 'Stop voice typing' : 'Dictate a message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
+            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} disabled={mode === 'connecting'} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
+            <button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button>
           </form>
-          <p className="mt-4 text-xs leading-5 text-white/35">Submitting this form sends a booking request, not a confirmed appointment. Please do not include passwords or payment details.</p>
+          <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
         </div>
-      </div>
-
-
-      <footer className="relative z-10 border-t border-white/[0.08] px-5 py-6 text-center text-xs text-white/35">
-        © {new Date().getFullYear()} PJ Web Development · Your Vision. Our Code. Together Online.
-      </footer>
-
-      {/** Official ElevenLabs widget. Voice and text are enabled in the agent's widget configuration. */}
-      <div ref={widgetContainer} />
-    </main>
-  );
+        <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><button onClick={() => setBookingOpen(true)}>Book a consultation</button></footer>
+      </>}
+    </section>
+    {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
+      <section className="pj-booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title">
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}><div><p style={{ margin: 0, color: '#ffbd82', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase' }}>Next step</p><h2 id="booking-title" style={{ margin: '7px 0', fontSize: 23, letterSpacing: '-.04em' }}>Book a consultation</h2><p style={{ margin: 0, color: '#b7a7a0', fontSize: 12, lineHeight: 1.7 }}>Choose a time and send a request. Your appointment is only confirmed after PJ approves it.</p></div><button className="pj-quiet-button" onClick={() => setBookingOpen(false)} aria-label="Close booking form"><X size={16} /></button></div>
+        <form onSubmit={submitBooking} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12, marginTop: 20 }}>
+          <label>Preferred date<input type="date" min={localDate()} value={date} onChange={e => setDate(e.target.value)} required /></label>
+          <label>Available time<select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required><option value="">Choose a time</option>{slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</option>)}</select></label>
+          <label>Your name<input value={customerName} onChange={e => setCustomerName(e.target.value)} minLength={2} maxLength={120} required placeholder="Full name" /></label>
+          <label>Phone or email<input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="How PJ can reach you" /></label>
+          <label style={{ gridColumn: '1 / -1' }}>What would you like to discuss? (optional)<textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1000} rows={3} placeholder="Website, online store, AI assistant, or another project…" /></label>
+          {bookingError && <p role="alert" style={{ gridColumn: '1 / -1', color: '#ffb3a4', fontSize: 12 }}>{bookingError}</p>}
+          {bookingMessage && <p role="status" style={{ gridColumn: '1 / -1', color: '#a7f3d0', fontSize: 12 }}>{bookingMessage}</p>}
+          {!bookingError && !slots.length && <p style={{ gridColumn: '1 / -1', color: '#b7a7a0', fontSize: 11 }}>No available times are currently listed for this date. Try another date.</p>}
+          <button className="pj-booking-submit" type="submit" disabled={bookingLoading || !slots.length}>{bookingLoading ? 'Sending request…' : 'Request consultation'}</button>
+        </form>
+        <p style={{ color: '#8c7d7c', fontSize: 10, lineHeight: 1.6, marginBottom: 0 }}>Submitting this form sends a request, not a confirmed appointment. Please don't include passwords or payment details.</p>
+      </section>
+    </div>}
+  </main>;
 }
