@@ -1,5 +1,3 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 const PLATFORM_ORIGIN = 'https://chat.pjwebdev.online';
 const PJ_WEB_DEV_CLIENT_ID = 'client_ge8euv97';
 const recentRequests = new Map<string, { count: number; resetAt: number }>();
@@ -15,7 +13,7 @@ function rateLimited(key: string): boolean {
   return current.count > 20;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method !== 'POST') {
