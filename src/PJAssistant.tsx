@@ -25,6 +25,7 @@ export default function PJAssistant() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [intro, setIntro] = useState(true);
+  const [isLiveMode, setIsLiveMode] = useState(false);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([]);
@@ -62,6 +63,7 @@ export default function PJAssistant() {
 
   const startConversation = async (textOnly = false) => {
     if (conversationRef.current || mode === 'connecting') return;
+    setIsLiveMode(!textOnly);
     setError(''); setMode('connecting'); setStatus('Waking up the sunset…');
     try {
       const conversation = await Conversation.startSession({
@@ -71,7 +73,7 @@ export default function PJAssistant() {
           const next = typeof event === 'string' ? event : event?.status;
           if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setStatus('Ready when you are'); }
+          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
         },
         onModeChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.mode;
@@ -101,6 +103,7 @@ export default function PJAssistant() {
   };
 
   const endVoice = async () => {
+    setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
     try { await current?.endSession(); } catch { /* Already ended. */ }
     setMode('idle'); setStatus('Ready when you are');
@@ -109,15 +112,19 @@ export default function PJAssistant() {
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !conversationRef.current) return;
-    setDraft(''); addLine('user', text);
-    try { await conversationRef.current.sendUserMessage(text); }
+    if (!text) return;
+    setDraft('');
+    try {
+      if (!conversationRef.current) await startConversation(true);
+      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
+      addLine('user', text);
+      await conversationRef.current.sendUserMessage(text);
+    }
     catch (e: any) { setError(e?.message || 'That message could not be sent. Please try again.'); setDraft(text); }
   };
 
   const toggleText = () => {
     setTextMode(value => !value);
-    if (!conversationRef.current && mode === 'idle') void startConversation(true);
     window.setTimeout(() => inputRef.current?.focus(), 150);
   };
 
@@ -149,28 +156,35 @@ export default function PJAssistant() {
       <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><CalendarDays size={14} /> Book PJ</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
-    <section className="pj-center">
-      <div className="pj-eyebrow">A little conversation can start a lot</div>
-      <h1 className="pj-title">Your next idea starts <span>here.</span></h1>
-      <p className="pj-subtitle">Talk naturally. Ask a question, explore a business idea, or tell me what you'd like to build.</p>
-      <SunsetOrb mode={mode} />
-      <div className="pj-transcript" aria-live="polite" aria-relevant="additions text">
-        {messages.length === 0 && <p className="pj-line agent" style={{ color: '#c9a99a' }}>Your words will appear here as we talk.</p>}
-        {messages.slice(-5).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
-        <div ref={transcriptEndRef} />
-      </div>
-      <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{status}</div>
-      <div className="pj-controls">
-        <div className="pj-main-controls">
-          {mode === 'idle' ? <button className="pj-talk-button" onClick={() => startConversation(false)}><Mic size={17} /> Start talking</button> : mode === 'connecting' ? <button className="pj-talk-button" disabled><Sparkles size={17} /> Connecting…</button> : <button className="pj-talk-button" onClick={endVoice}><MicOff size={17} /> End conversation</button>}
-          {mode !== 'idle' && mode !== 'connecting' && <button className="pj-end-button" aria-label="End conversation" onClick={endVoice}><PhoneOff size={17} /></button>}
+    <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
+      {isLiveMode ? <>
+        <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
+        <SunsetOrb mode={mode} />
+        <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
+          {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
+          <div ref={transcriptEndRef} />
         </div>
-        {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder={conversationRef.current ? 'Type a message…' : 'Start talking first to open text chat…'} aria-label="Message PJ Assistant" disabled={!conversationRef.current} maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || !conversationRef.current} aria-label="Send message"><ArrowUp size={18} /></button></form>}
-        <button className="pj-text-toggle" onClick={toggleText}>{textMode ? <><ChevronDown size={14} /> Hide text input</> : <><Sparkles size={14} /> {mode === 'idle' ? 'Prefer typing? Open text chat' : 'Type instead of speaking'}</>}</button>
-        <p className="pj-helper">Your microphone is only used after you start a conversation. PJ Assistant is AI, not a human. Please don't share passwords or payment details.</p>
-      </div>
-      {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
-      <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><span><ShieldCheck size={12} style={{ display: 'inline', verticalAlign: '-2px' }} /> Private conversation</span><span>·</span><button onClick={() => setBookingOpen(true)}>Request a consultation</button></footer>
+        <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
+        <div className="pj-controls pj-live-controls">
+          <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
+          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>}
+          <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
+        </div>
+      </> : <>
+        <div className="pj-chat-heading"><div className="pj-eyebrow">PJ WEB DEVELOPMENT</div><h1 className="pj-title">Hey there. <span>What's on your mind?</span></h1><p className="pj-subtitle">Ask a question or tell me what you want to build. You can type or switch to live voice anytime.</p></div>
+        <div className="pj-chat-window" aria-live="polite" aria-relevant="additions text">
+          {messages.length === 0 && <div className="pj-empty-chat"><div className="pj-chat-sun"><SunsetOrb mode="idle" /></div><strong>Let's start with your idea.</strong><span>Send a message below, or tap Live Talk to speak naturally.</span></div>}
+          {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
+          <div ref={transcriptEndRef} />
+        </div>
+        {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
+        <div className="pj-chat-compose">
+          <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>
+          <button className="pj-live-launch" onClick={() => startConversation(false)} disabled={mode === 'connecting'}><Mic size={16} /> Live Talk</button>
+          <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
+        </div>
+        <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><button onClick={() => setBookingOpen(true)}>Book a consultation</button></footer>
+      </>}
     </section>
     {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
       <section className="pj-booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title">
