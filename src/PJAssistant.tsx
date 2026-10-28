@@ -159,23 +159,10 @@ export default function PJAssistant() {
     setIsSending(true);
     setError('');
     try {
-      // Text chat uses the site's own chat API. It must not depend on opening an
-      // ElevenLabs voice session first, otherwise normal messages can silently fail.
-      const history = messages.slice(-20).map(line => ({
-        role: line.role === 'agent' ? 'model' : 'user',
-        content: line.text,
-      }));
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
-        throw new Error(body.error || 'PJ Assistant could not reply just now. Please try again.');
-      }
+      if (!conversationRef.current) await startConversation(true);
+      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
       addLine('user', text);
-      addLine('agent', body.reply);
+      await conversationRef.current.sendUserMessage(text);
       setDraft('');
     } catch (e: any) {
       setError(e?.message || 'That message could not be sent. Please try again.');
