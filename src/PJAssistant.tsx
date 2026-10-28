@@ -21,6 +21,8 @@ function SunsetOrb({ mode }: { mode: VoiceMode }) {
 
 export default function PJAssistant() {
   const conversationRef = useRef<any>(null);
+  const endRequestedRef = useRef(false);
+  const lastVoiceErrorRef = useRef('');
   const nextMessageId = useRef(1);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +73,8 @@ export default function PJAssistant() {
 
   const startConversation = async (textOnly = false) => {
     if (conversationRef.current || mode === 'connecting') return;
+    endRequestedRef.current = false;
+    lastVoiceErrorRef.current = '';
     setIsLiveMode(!textOnly);
     setError(''); setMode('connecting'); setStatus('Waking up the sunset…');
     try {
@@ -81,7 +85,20 @@ export default function PJAssistant() {
           const next = typeof event === 'string' ? event : event?.status;
           if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
+          if (next === 'disconnected') {
+            conversationRef.current = null;
+            setMode('idle');
+            if (endRequestedRef.current) {
+              setIsLiveMode(false);
+              setStatus('Ready when you are');
+            } else {
+              // Keep the live screen open so a failed voice connection never
+              // silently throws the visitor back into text chat.
+              setIsLiveMode(true);
+              setStatus('Live Talk unavailable');
+              setError(lastVoiceErrorRef.current || 'Live Talk disconnected before it could start. Please try again.');
+            }
+          }
         },
         onModeChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.mode;
@@ -99,7 +116,14 @@ export default function PJAssistant() {
         },
         onError: (event: any) => {
           const message = typeof event === 'string' ? event : event?.message || 'The voice connection was interrupted. Please try again.';
-          setError(message); setMode('idle'); setStatus('Connection interrupted');
+          const quotaMessage = /quota_exceeded|run out of credits|out of credits|insufficient credits/i.test(message)
+            ? 'Live Talk is temporarily unavailable because the ElevenLabs account has run out of credits. Text chat remains available; voice will work again when credits are restored.'
+            : message;
+          lastVoiceErrorRef.current = quotaMessage;
+          conversationRef.current = null;
+          setError(quotaMessage);
+          setMode('idle');
+          setStatus('Live Talk unavailable');
         }
       } as any);
       conversationRef.current = conversation;
@@ -121,6 +145,7 @@ export default function PJAssistant() {
   };
 
   const endVoice = async () => {
+    endRequestedRef.current = true;
     setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
     try { await current?.endSession(); } catch { /* Already ended. */ }
