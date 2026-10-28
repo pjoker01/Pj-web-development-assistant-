@@ -13,6 +13,7 @@ const localDate = () => { const d = new Date(); return [d.getFullYear(), String(
 
 function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
+    <div className="orb-nebula nebula-one" /><div className="orb-nebula nebula-two" /><div className="orb-cloud cloud-back" /><div className="orb-cloud cloud-front" />
     <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
     <div className="sun-orb"><div className="sun-corona" /><div className="sun-gloss" /><div className="sun-plasma plasma-one" /><div className="sun-plasma plasma-two" /><div className="sun-limb" /></div>
     <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
@@ -80,7 +81,12 @@ export default function PJAssistant() {
           const next = typeof event === 'string' ? event : event?.status;
           if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
           if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') { conversationRef.current = null; setMode('idle'); setIsLiveMode(false); setStatus('Ready when you are'); }
+          if (next === 'disconnected') {
+            conversationRef.current = null;
+            setMode('idle');
+            setStatus('Live Talk disconnected');
+            setError('Live Talk disconnected. Check microphone permission and your connection, then try Live Talk again. Typed chat remains available.');
+          }
         },
         onModeChange: (event: any) => {
           const next = typeof event === 'string' ? event : event?.mode;
@@ -129,15 +135,41 @@ export default function PJAssistant() {
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    if (!text || bookingLoading) return;
     setDraft('');
-    try {
-      if (!conversationRef.current) await startConversation(true);
-      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
-      addLine('user', text);
-      await conversationRef.current.sendUserMessage(text);
+    setError('');
+    // Typed chat must not depend on an ElevenLabs voice session. Use the
+    // server's own chat endpoint so ordinary text chat works independently.
+    if (isLiveMode && conversationRef.current) {
+      try {
+        addLine('user', text);
+        await conversationRef.current.sendUserMessage(text);
+      } catch (e: any) {
+        setError(e?.message || 'That message could not be sent through Live Talk. You can close Live Talk and send it in chat.');
+        setDraft(text);
+      }
+      return;
     }
-    catch (e: any) { setError(e?.message || 'That message could not be sent. Please try again.'); setDraft(text); }
+    addLine('user', text);
+    try {
+      const history = messages.slice(-20).map(line => ({
+        role: line.role === 'agent' ? 'model' : 'user',
+        content: line.text
+      }));
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not reply right now. Please try again.');
+      }
+      addLine('agent', body.reply);
+    } catch (e: any) {
+      setError(e?.message || 'That message could not be sent. Please try again.');
+      setDraft(text);
+    }
   };
 
   const toggleText = () => {
@@ -226,7 +258,9 @@ export default function PJAssistant() {
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           <div ref={transcriptEndRef} />
         </div>
-        <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
+        <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : mode === 'listening' ? 'Listening' : 'Live Talk disconnected'}</div>
+        {error && <div className="pj-error" role="alert">{error}</div>}
+        {mode === 'idle' && <button className="pj-talk-button" onClick={() => { setError(''); switchToLive(); }}>Reconnect Live Talk</button>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button></form>}
