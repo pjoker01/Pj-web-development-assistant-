@@ -111,3 +111,12 @@
 .pj-live-view .pj-live-transcript{justify-content:flex-start;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;mask-image:linear-gradient(180deg,transparent 0%,#000 12%,#000 88%,transparent 100%);padding-top:14px;padding-bottom:14px}
 .pj-live-view .pj-live-transcript .pj-line{width:100%;flex:none;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:380px){.pj-chat-compose .pj-chat-input-row{gap:4px;padding-left:10px}.pj-chat-compose .pj-icon-action,.pj-chat-compose .pj-send{width:34px;height:34px;border-radius:11px}.pj-chat-compose .pj-chat-input-row input{font-size:12px}}
+
+@media (prefers-reduced-motion: reduce) {
+  .pj-live-view .orb-stage *, .pj-intro .orb-stage *, .pj-live-transcript {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
