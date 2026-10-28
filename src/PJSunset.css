@@ -96,3 +96,18 @@
 .pj-live-view .pj-transcript .pj-line.agent{color:#fff8f1}
 @media(max-width:600px){.pj-chat-view{padding:12px 16px 14px;gap:12px}.pj-chat-heading{padding-top:4px}.pj-chat-heading .pj-title{font-size:30px}.pj-chat-heading .pj-subtitle{font-size:12px}.pj-chat-window{max-height:calc(100svh - 350px);min-height:190px}.pj-chat-message{max-width:94%}.pj-chat-message p{font-size:12px}.pj-chat-note{font-size:9px;text-align:right}.pj-live-view{padding:4px 16px 14px}.pj-live-view .orb-stage{width:min(75vw,280px)}.pj-live-view .pj-transcript{min-height:80px}.pj-live-view .pj-footer{justify-content:center}}
 @media(max-height:700px){.pj-chat-view{gap:9px}.pj-chat-heading .pj-title{font-size:27px}.pj-chat-window{min-height:120px;max-height:calc(100svh - 310px)}.pj-live-view .orb-stage{width:min(52vh,230px)}.pj-live-view .pj-transcript{min-height:60px;max-height:100px}.pj-live-controls{margin-top:7px}}
+
+
+/* Keep dictation, Live Talk and Send together in one message composer. */
+.pj-chat-compose{grid-template-columns:minmax(0,1fr);gap:7px}
+.pj-chat-compose .pj-chat-input-row{grid-column:auto;display:flex;align-items:center;gap:5px;padding:6px 7px 6px 13px}
+.pj-chat-compose .pj-chat-input-row input{width:0;flex:1;min-width:0;padding:11px 4px;font-size:13px}
+.pj-chat-compose .pj-icon-action{width:38px;height:38px;flex:none;display:grid;place-items:center;border:1px solid #ffffff18;border-radius:13px;background:#ffffff08;color:#e8c8b2;cursor:pointer;transition:background .2s,border-color .2s,color .2s}
+.pj-chat-compose .pj-icon-action:hover,.pj-chat-compose .pj-icon-action.is-active{background:#ffb97820;border-color:#ffb97877;color:#ffd0a6}
+.pj-chat-compose .pj-inline-live{color:#ffd0a6;border-color:#ffb97840;background:#ffb97812}
+.pj-chat-compose .pj-icon-action:disabled{opacity:.45;cursor:wait}
+.pj-chat-compose .pj-send{width:38px;height:38px;border-radius:13px;flex:none}
+.pj-chat-compose .pj-chat-note{grid-column:auto;justify-self:end}
+.pj-live-view .pj-live-transcript{justify-content:flex-start;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;mask-image:linear-gradient(180deg,transparent 0%,#000 12%,#000 88%,transparent 100%);padding-top:14px;padding-bottom:14px}
+.pj-live-view .pj-live-transcript .pj-line{width:100%;flex:none;overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:380px){.pj-chat-compose .pj-chat-input-row{gap:4px;padding-left:10px}.pj-chat-compose .pj-icon-action,.pj-chat-compose .pj-send{width:34px;height:34px;border-radius:11px}.pj-chat-compose .pj-chat-input-row input{font-size:12px}}
