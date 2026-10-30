@@ -128,6 +128,7 @@ The following changes have been committed to the redesign branch only (not deplo
 - Removed the extra temporary `getUserMedia()` capture. VoiceLoop's documented `agent.start()` is now the only Live Talk microphone acquisition path. Dictation is stopped before Live Talk starts.
 - Consolidated duplicate live-mode booleans into the existing `mode` state and removed the fake microphone-level ring update. The selected Web Speech provider does not emit VoiceLoop's pipeline `level` events, so the UI must not imply that it has a real amplitude reading.
 - A terminal VoiceLoop error now destroys the failed agent, clears the silence timer, and returns the visitor to text chat.
+- Extracted the speech profile and platform-backed voice LLM adapter into `src/assistant/voice/pj-voice-agent.ts`; a small session controller now owns audio unlock, start, idempotent teardown, and the voice agent's public methods. The React screen no longer constructs `VoiceAgent` directly.
 - Added Node test-runner coverage for the chat, availability, and consultation-request API contracts, plus an `npm test` script.
 
 ### Remaining work before release
