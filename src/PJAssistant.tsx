@@ -150,7 +150,14 @@ export default function PJAssistant() {
     });
     voiceAgentRef.current = agent;
     try {
+      // Request permission explicitly from this tap, then release the temporary
+      // stream before VoiceLoop opens its own Web Speech microphone.
       unlockAudio();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('This browser cannot request microphone access. Please open assistant.pjwebdev.online in Chrome and allow Microphone in site settings.');
+      }
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permissionStream.getTracks().forEach(track => track.stop());
       await agent.start();
       setMode('listening'); setStatus('Listening to you');
       void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
