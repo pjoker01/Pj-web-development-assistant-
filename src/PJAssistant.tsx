@@ -286,7 +286,11 @@ export default function PJAssistant() {
           nativeVoiceActiveRef.current = false;
           setNativeVoiceActive(false);
           setIsLiveMode(false);
-          setError('Microphone access was interrupted. Check your browser microphone permission and try again.');
+          setMode('idle');
+          stopMicMeter();
+          setError(event?.error === 'not-allowed'
+            ? 'Chrome blocked microphone access. Allow microphone permission for assistant.pjwebdev.online, then try again.'
+            : 'Microphone access was interrupted. Check your browser microphone permission and try again.');
         }
       };
       recognition.onend = () => {
@@ -302,7 +306,9 @@ export default function PJAssistant() {
       nativeVoiceActiveRef.current = false;
       setNativeVoiceActive(false);
       setIsLiveMode(false);
+      setMode('idle');
       setNativeVoiceListening(false);
+      stopMicMeter();
       setError('PJ Native Voice could not start. Check microphone permission and try again.');
     }
   };
