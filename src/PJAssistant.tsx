@@ -12,9 +12,9 @@ type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
 const WELCOME_MESSAGE = "Hi, welcome to PJ Web Development. I'm PJ Assistant. What can I help you with today?";
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
 
-function SunsetOrb({ mode, level }: { mode: VoiceMode; level: number }) {
+function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
-    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-mic-meter" style={{ opacity: 0.12 + level * 0.78, transform: `scale(${1 + level * 0.22})` }} /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
+    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
     <div className="sun-orb"><div className="sun-corona" /><div className="sun-gloss" /><div className="sun-plasma plasma-one" /><div className="sun-plasma plasma-two" /><div className="sun-limb" /></div>
     <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
   </div>;
@@ -29,11 +29,9 @@ export default function PJAssistant() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [intro, setIntro] = useState(true);
-  const [isLiveMode, setIsLiveMode] = useState(false);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([{ id: 1, role: 'agent', text: WELCOME_MESSAGE }]);
-  const [micLevel, setMicLevel] = useState(0);
   const chatSessionIdRef = useRef('pjassistant-' + (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)));
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -41,7 +39,6 @@ export default function PJAssistant() {
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
-  const [voiceActive, setVoiceActive] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -97,7 +94,7 @@ export default function PJAssistant() {
       setError('Live voice input needs Chrome on Android or a supported desktop browser. Please use Chrome, allow microphone access, or continue with text chat.');
       return;
     }
-    setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…'); setIsLiveMode(true); setVoiceActive(true);
+    setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
     const agent = new VoiceAgent({
       sttProvider: 'webspeech', sttLang: 'en-ZA',
@@ -127,7 +124,6 @@ export default function PJAssistant() {
           else if (event.state === 'thinking') { setMode('connecting'); setStatus('Thinking…'); }
           else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
-        if (event.type === 'level' && typeof event.level === 'number') setMicLevel(previous => Math.max(event.level, previous * 0.72));
         if (event.type === 'stt' && event.turnComplete && event.text) {
           voiceSilenceFollowupSentRef.current = false; addLine('user', event.text);
           if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
@@ -161,10 +157,7 @@ export default function PJAssistant() {
           try { failedAgent?.destroy(); } catch { /* The library may already have torn down. */ }
           if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
           voiceSilenceTimerRef.current = null;
-          setVoiceActive(false);
-          setIsLiveMode(false);
           setMode('idle');
-          setMicLevel(0);
           setStatus('Voice stopped — you can continue by typing');
         }
       },
@@ -179,7 +172,7 @@ export default function PJAssistant() {
     } catch (err: any) {
       try { agent.destroy(); } catch { /* Release partial session. */ }
       if (voiceAgentRef.current === agent) voiceAgentRef.current = null;
-      setVoiceActive(false); setIsLiveMode(false); setMode('idle'); setStatus('Ready when you are');
+      setMode('idle'); setStatus('Ready when you are');
       const detail = err?.message || 'PJ Live Voice could not start.';
       setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Chrome has not allowed microphone access. Tap the site icon beside the address, open Permissions, set Microphone to Allow, then reload and try again.' : detail + ' Please check microphone permission and try again.');
     }
@@ -190,13 +183,13 @@ export default function PJAssistant() {
     voiceSilenceTimerRef.current = null;
     const current = voiceAgentRef.current; voiceAgentRef.current = null;
     try { current?.destroy(); } catch { /* Already ended. */ }
-    setVoiceActive(false); setMicLevel(0); setIsLiveMode(false); setMode('idle'); setStatus('Ready for your message');
+    setMode('idle'); setStatus('Ready for your message');
   };
 
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const text = draft.trim(); if (!text || isSending) return;
     setIsSending(true); setError(''); setDraft('');
-    if (voiceAgentRef.current && isLiveMode) {
+    if (voiceAgentRef.current && mode !== 'idle') {
       const accepted = voiceAgentRef.current.sendUserText(text);
       if (!accepted) setError('That message could not be added to the live conversation.');
       else setStatus('Thinking…');
@@ -249,6 +242,7 @@ export default function PJAssistant() {
       };
       recognition.onend = () => setIsDictating(false);
       recognition.start();
+      setIsDictating(true);
     } catch {
       setIsDictating(false);
       setError('Microphone typing could not start. Check browser microphone permission.');
@@ -291,10 +285,10 @@ export default function PJAssistant() {
       <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
-    <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
+    <section className={mode !== 'idle' ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
       {isLiveMode ? <>
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
-        <SunsetOrb mode={mode} level={micLevel} />
+        <SunsetOrb mode={mode} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           <div ref={transcriptEndRef} />
@@ -303,8 +297,8 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            {voiceActive && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
-            {!voiceActive && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
+            {mode !== 'idle' && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
+            {mode === 'idle' && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
           </div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
