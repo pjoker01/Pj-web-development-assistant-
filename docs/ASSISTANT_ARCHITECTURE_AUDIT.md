@@ -118,9 +118,9 @@ Before any production alias is moved:
 - Do not touch PJ Hub or other PJ repositories.
 - Do not expose provider secrets in the browser.
 
-## Implementation progress on `redesign/assistant-architecture`
+## Implementation delivered via PR #16 to `main`
 
-The following changes have been committed to the redesign branch only (not deployed):
+The following changes were merged into `main` in PR #16. They are not yet deployed to the production alias:
 
 - Added `src/assistant/api/assistant-api.ts` as the single typed browser client for the existing public PJ Chat Platform chat, availability, and consultation-request endpoints.
 - Routed both typed chat and VoiceLoop's custom LLM adapter through the shared chat client. Text history excludes the local-only welcome line so it does not cause the platform's browser-history reconciliation to reset the session on every typed turn.
@@ -131,19 +131,18 @@ The following changes have been committed to the redesign branch only (not deplo
 - Extracted the speech profile and platform-backed voice LLM adapter into `src/assistant/voice/pj-voice-agent.ts`; a small session controller now owns audio unlock, start, idempotent teardown, and the voice agent's public methods. The React screen no longer constructs `VoiceAgent` directly.
 - Added Node test-runner coverage for the chat, availability, and consultation-request API contracts, plus deterministic Live Talk lifecycle tests for duplicate starts, idempotent teardown, and startup failure cleanup.
 
-### Remaining work before release
+### Remaining work before production release
 
-1. Run `npm test`, `npm run lint`, and `npm run build` in a real checkout with the repository's installed dependencies. These checks have not yet been executed in this environment.
-2. Extract VoiceLoop construction and speech-profile configuration into a dedicated voice adapter module; keep React responsible for rendering and state transitions only.
-3. Add lifecycle tests for permission denial, unsupported browsers, start/stop repetition, error teardown, and text-to-voice session continuity.
-4. Decide whether the legacy `/pj-control` and non-assistant routes remain supported. The legacy Express/Gemini and serverless bridge paths should be retired only after route ownership is agreed.
-5. Perform the physical Android Chrome microphone test and confirm the production alias points to the exact tested commit. Do not deploy before these gates pass.
+1. Complete lifecycle coverage for permission denial, unsupported browsers, disconnects, and text-to-voice continuity.
+2. Decide whether the legacy `/pj-control` and non-assistant routes remain supported before retiring their old Express/Gemini paths.
+3. Perform the physical Android Chrome microphone test.
+4. Restore Vercel deployment capacity, deploy the merged `main` commit, and verify that `assistant.pjwebdev.online` resolves to that exact production deployment.
 
-**Current status:** architecture refactor in progress; no production deployment or main-branch change has been made. GitHub Actions did not report any workflow runs for the latest branch commit, and the local checkout/build could not be executed in this environment.
+**Current status:** PR #16 is merged into `main`. Automated tests, TypeScript checking, and the Vite production build passed in a clean Vercel sandbox. The production domain is still on the older deployment because Vercel rejected new deployments with HTTP 402 (`api-deployments-free-per-day`). The CLI fallback was unavailable in the sandbox. No claim of production release should be made until the alias is updated and verified.
 
 ## Release verification — 2026-10-30
 
-A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06bbf` was installed and built successfully.
+A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06bbf` was installed and built successfully. PR #16 was subsequently merged into `main` as merge commit `d3df9ebb6a631f3c53844e107d2a43df868085be`.
 
 - `npm install --no-audit --no-fund`: completed.
 - `npm run test`: **7 passed, 0 failed**.
