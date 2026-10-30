@@ -1,4 +1,4 @@
-import { PiperTTS, VoiceAgent } from '@todoforai/voiceloop';
+import { PiperTTS, VoiceAgent, unlockAudio } from '@todoforai/voiceloop';
 import { sendAssistantMessage } from '../api/assistant-api';
 
 export type PJVoiceAgentOptions = {
@@ -57,4 +57,42 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
     },
     onEvent,
   });
+}
+
+export type PJVoiceSession = ReturnType<typeof createPJVoiceSession>;
+
+/** Owns the one Live Talk microphone session and makes teardown idempotent. */
+export function createPJVoiceSession(options: PJVoiceAgentOptions) {
+  const agent = createPJVoiceAgent(options);
+  let started = false;
+  let destroyed = false;
+
+  return {
+    async start() {
+      if (started || destroyed) return;
+      // Must execute synchronously in the user's tap before the first await.
+      unlockAudio();
+      started = true;
+      try {
+        await agent.start();
+      } catch (error) {
+        this.destroy();
+        throw error;
+      }
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      started = false;
+      try { agent.destroy(); } catch { /* The underlying agent may already be closed. */ }
+    },
+    notify(message: string) {
+      if (!started || destroyed) return Promise.reject(new Error('PJ Live Talk is not active.'));
+      return agent.notify(message);
+    },
+    sendUserText(message: string) {
+      if (!started || destroyed) return false;
+      return agent.sendUserText(message);
+    },
+  };
 }
