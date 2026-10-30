@@ -436,10 +436,10 @@ export default function PJAssistant() {
           {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
           <div ref={transcriptEndRef} />
         </div>
-        {error && <div className="pj-error" role="alert">
-          {error}
+        {(error || nativeVoiceActive) && <div className="pj-error" role={error ? 'alert' : 'status'}>
+          {error && <span>{error}</span>}
           {(nativeVoiceActive || /ElevenLabs Live Voice is temporarily unavailable/i.test(error)) && <button className="pj-text-toggle" onClick={nativeVoiceActive ? stopNativeVoice : startNativeVoice} style={{ marginLeft: 8 }}><Mic size={14} /> {nativeVoiceListening ? 'Listening…' : nativeVoiceActive ? 'Stop PJ Native Voice' : 'Continue with PJ Native Voice'}</button>}
-          <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>
+          {error && <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>}
         </div>}
         <div className="pj-chat-compose">
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
