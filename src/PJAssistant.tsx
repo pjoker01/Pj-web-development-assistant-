@@ -152,7 +152,20 @@ export default function PJAssistant() {
         }
         if (event.type === 'error') {
           const detail = event.error?.message || String(event.error || 'The voice session encountered a problem.');
-          setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, set Microphone to Allow, then tap Live Talk again.' : detail);
+          setError(/not.?allowed|permission|microphone/i.test(detail)
+            ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, set Microphone to Allow, then tap Live Talk again.'
+            : detail);
+          // A VoiceLoop error is terminal for this session: release it and return to text chat.
+          const failedAgent = voiceAgentRef.current;
+          voiceAgentRef.current = null;
+          try { failedAgent?.destroy(); } catch { /* The library may already have torn down. */ }
+          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+          voiceSilenceTimerRef.current = null;
+          setVoiceActive(false);
+          setIsLiveMode(false);
+          setMode('idle');
+          setMicLevel(0);
+          setStatus('Voice stopped — you can continue by typing');
         }
       },
     });
@@ -289,6 +302,7 @@ export default function PJAssistant() {
           <div ref={transcriptEndRef} />
         </div>
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
+        {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
             {voiceActive && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
