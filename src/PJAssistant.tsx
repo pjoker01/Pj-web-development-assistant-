@@ -186,8 +186,24 @@ export default function PJAssistant() {
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
+      if (typeof body.sessionId === 'string' && body.sessionId) {
+        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
+        chatSessionIdRef.current = body.sessionId;
+        if (sessionChanged) {
+          setMessages(current => current.filter(line =>
+            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
+          ));
+        }
+      }
+      if (typeof body.sessionId === 'string' && body.sessionId) {
+        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
+        chatSessionIdRef.current = body.sessionId;
+        if (sessionChanged) {
+          setMessages(current => current.filter(line =>
+            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
+          ));
+        }
+      }
       if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
         throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
       }
