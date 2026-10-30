@@ -40,6 +40,8 @@ export default function PJAssistant() {
   const [error, setError] = useState('');
   const nativeRecognitionRef = useRef<any>(null);
   const [nativeVoiceListening, setNativeVoiceListening] = useState(false);
+  const nativeVoiceActiveRef = useRef(false);
+  const [nativeVoiceActive, setNativeVoiceActive] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -216,43 +218,13 @@ export default function PJAssistant() {
     }
   };
 
-  const sendNativeVoiceMessage = async (spoken: string) => {
-    const history = messages.slice(-20).map(line => ({
-      role: line.role === 'agent' ? 'assistant' : 'user',
-      content: line.text,
-    }));
-    addLine('user', spoken);
-    setError('');
-    setStatus('Thinking…');
-    try {
-      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
-        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
-      }
-      addLine('agent', body.reply);
-      setStatus('PJ Native Voice is ready');
-      if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(body.reply);
-        utterance.lang = 'en-ZA';
-        utterance.rate = 1;
-        window.speechSynthesis.speak(utterance);
-      }
-    } catch (e: any) {
-      setError(e?.message || 'PJ Native Voice could not answer just now. Please try again.');
-      setStatus('Ready for your message');
-    }
-  };
-
-  const startNativeVoice = () => {
+  const startNativeRecognition = () => {
+    if (!nativeVoiceActiveRef.current) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('Your browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
+      nativeVoiceActiveRef.current = false;
+      setNativeVoiceActive(false);
+      setError('This browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
       return;
     }
     try {
@@ -273,19 +245,92 @@ export default function PJAssistant() {
       };
       recognition.onerror = (event: any) => {
         setNativeVoiceListening(false);
-        if (event?.error !== 'no-speech' && event?.error !== 'aborted') {
+        if (event?.error === 'no-speech' && nativeVoiceActiveRef.current) {
+          window.setTimeout(() => {
+            if (nativeVoiceActiveRef.current) startNativeRecognition();
+          }, 350);
+        } else if (event?.error !== 'aborted') {
+          nativeVoiceActiveRef.current = false;
+          setNativeVoiceActive(false);
           setError('Microphone access was interrupted. Check your browser microphone permission and try again.');
         }
       };
       recognition.onend = () => setNativeVoiceListening(false);
       recognition.start();
     } catch {
+      nativeVoiceActiveRef.current = false;
+      setNativeVoiceActive(false);
       setNativeVoiceListening(false);
       setError('PJ Native Voice could not start. Check microphone permission and try again.');
     }
   };
 
+  const sendNativeVoiceMessage = async (spoken: string) => {
+    const history = messages.slice(-20).map(line => ({
+      role: line.role === 'agent' ? 'assistant' : 'user',
+      content: line.text,
+    }));
+    addLine('user', spoken);
+    setError('');
+    setStatus('Thinking…');
+    const resumeListening = () => {
+      if (nativeVoiceActiveRef.current) startNativeRecognition();
+    };
+    try {
+      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (typeof body.sessionId === 'string' && body.sessionId) {
+        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
+        chatSessionIdRef.current = body.sessionId;
+        if (sessionChanged) {
+          setMessages(current => current.filter(line =>
+            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
+          ));
+        }
+      }
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      }
+      addLine('agent', body.reply);
+      setStatus('PJ Native Voice is ready');
+      if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(body.reply);
+        utterance.lang = 'en-ZA';
+        utterance.rate = 1;
+        utterance.onend = resumeListening;
+        utterance.onerror = resumeListening;
+        window.speechSynthesis.speak(utterance);
+      } else {
+        resumeListening();
+      }
+    } catch (e: any) {
+      setError(e?.message || 'PJ Native Voice could not answer just now. Please try again.');
+      setStatus('PJ Native Voice is ready');
+      resumeListening();
+    }
+  };
+
+  const startNativeVoice = () => {
+    if (nativeVoiceActiveRef.current) return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('This browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
+      return;
+    }
+    nativeVoiceActiveRef.current = true;
+    setNativeVoiceActive(true);
+    setError('');
+    startNativeRecognition();
+  };
+
   const stopNativeVoice = () => {
+    nativeVoiceActiveRef.current = false;
+    setNativeVoiceActive(false);
     try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
     try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
     setNativeVoiceListening(false);
@@ -393,7 +438,7 @@ export default function PJAssistant() {
         </div>
         {error && <div className="pj-error" role="alert">
           {error}
-          {/ElevenLabs Live Voice is temporarily unavailable/i.test(error) && <button className="pj-text-toggle" onClick={nativeVoiceListening ? stopNativeVoice : startNativeVoice} style={{ marginLeft: 8 }}><Mic size={14} /> {nativeVoiceListening ? 'Listening…' : 'Continue with PJ Native Voice'}</button>}
+          {/ElevenLabs Live Voice is temporarily unavailable/i.test(error) && <button className="pj-text-toggle" onClick={nativeVoiceActive ? stopNativeVoice : startNativeVoice} style={{ marginLeft: 8 }}><Mic size={14} /> {nativeVoiceListening ? 'Listening…' : nativeVoiceActive ? 'Stop PJ Native Voice' : 'Continue with PJ Native Voice'}</button>}
           <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>
         </div>}
         <div className="pj-chat-compose">
