@@ -228,3 +228,21 @@
 /* Clean messenger layout after the five-second brand splash. */
 .pj-chat-view{gap:10px;padding-top:10px}
 .pj-chat-window-clean{min-height:calc(100svh - 250px);max-height:calc(100svh - 250px);padding-top:10px}
+
+
+/* Real microphone level ring: driven by the browser mic analyser while PJ Live is active. */
+.orb-mic-meter {
+  position: absolute;
+  z-index: 0;
+  inset: 21%;
+  border: 2px solid rgba(255, 207, 137, .72);
+  border-radius: 50%;
+  box-shadow: 0 0 22px rgba(255, 158, 91, .48), inset 0 0 18px rgba(255, 192, 119, .16);
+  pointer-events: none;
+  transition: transform 80ms linear, opacity 80ms linear;
+  will-change: transform, opacity;
+}
+.orb-stage.orb-listening .orb-mic-meter {
+  border-color: rgba(255, 221, 163, .88);
+  box-shadow: 0 0 28px rgba(255, 171, 99, .62), inset 0 0 22px rgba(255, 192, 119, .22);
+}
