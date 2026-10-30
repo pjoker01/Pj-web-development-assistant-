@@ -39,6 +39,9 @@ export default function PJAssistant() {
   const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
   const nativeRecognitionRef = useRef<any>(null);
+  const nativeProcessingRef = useRef(false);
+  const nativeSilenceTimerRef = useRef<number | null>(null);
+  const nativeFollowupSentRef = useRef(false);
   const [nativeVoiceListening, setNativeVoiceListening] = useState(false);
   const nativeVoiceActiveRef = useRef(false);
   const [nativeVoiceActive, setNativeVoiceActive] = useState(false);
@@ -159,6 +162,7 @@ export default function PJAssistant() {
   };
 
   const endVoice = async () => {
+    if (nativeVoiceActiveRef.current) stopNativeVoice();
     endRequestedRef.current = true;
     setIsLiveMode(false);
     const current = conversationRef.current; conversationRef.current = null;
@@ -172,8 +176,30 @@ export default function PJAssistant() {
     if (!text || isSending) return;
     setIsSending(true);
     setError('');
-    addLine('user', text);
     setDraft('');
+
+    // Typed messages inside ElevenLabs Live must go through the active voice session.
+    // That lets ElevenLabs generate both the transcript and spoken audio.
+    if (conversationRef.current && isLiveMode && !nativeVoiceActiveRef.current) {
+      try {
+        await conversationRef.current.sendUserMessage(text);
+      } catch (e: any) {
+        setError(e?.message || 'Your message could not be sent into the live conversation.');
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    addLine('user', text);
+    const resumeNative = nativeVoiceActiveRef.current;
+    if (resumeNative) {
+      nativeProcessingRef.current = true;
+      if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
+      try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+      setNativeVoiceListening(false);
+    }
+
     try {
       const response = await fetch(PJ_ASSISTANT_API + '/chat', {
         method: 'POST',
@@ -197,69 +223,117 @@ export default function PJAssistant() {
           ));
         }
       }
-      if (typeof body.sessionId === 'string' && body.sessionId) {
-        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
-        chatSessionIdRef.current = body.sessionId;
-        if (sessionChanged) {
-          setMessages(current => current.filter(line =>
-            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
-          ));
-        }
-      }
       if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
         throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
       }
       addLine('agent', body.reply);
-      setStatus('Ready for your message');
+      setStatus(resumeNative ? 'PJ Native Voice is speaking' : 'Ready for your message');
+      if (resumeNative) {
+        speakNativeReply(body.reply, () => {
+          nativeProcessingRef.current = false;
+          if (nativeVoiceActiveRef.current) startNativeRecognition();
+        });
+      }
     } catch (e: any) {
       setError(e?.message || 'That message could not be sent. Please try again.');
+      if (resumeNative) {
+        nativeProcessingRef.current = false;
+        if (nativeVoiceActiveRef.current) startNativeRecognition();
+      }
     } finally {
       setIsSending(false);
     }
   };
 
+  const speakNativeReply = (text: string, onComplete?: () => void) => {
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      onComplete?.();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-ZA';
+    utterance.rate = 0.98;
+    utterance.pitch = 1;
+    utterance.onend = () => onComplete?.();
+    utterance.onerror = () => onComplete?.();
+    setMode('speaking');
+    setStatus('PJ Assistant is speaking');
+    window.speechSynthesis.speak(utterance);
+  };
+
   const startNativeRecognition = () => {
-    if (!nativeVoiceActiveRef.current) return;
+    if (!nativeVoiceActiveRef.current || nativeProcessingRef.current) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       nativeVoiceActiveRef.current = false;
       setNativeVoiceActive(false);
-      setError('This browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
+      setIsLiveMode(false);
+      setError('This browser does not support continuous voice input. You can still type to PJ Assistant.');
       return;
     }
     try {
       const recognition = new SpeechRecognition();
       nativeRecognitionRef.current = recognition;
       recognition.lang = 'en-ZA';
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.continuous = false;
       recognition.onstart = () => {
         setNativeVoiceListening(true);
+        setMode('listening');
         setError('');
         setStatus('PJ Native Voice is listening');
+        if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
+        nativeSilenceTimerRef.current = window.setTimeout(() => {
+          if (!nativeVoiceActiveRef.current || nativeProcessingRef.current || nativeFollowupSentRef.current) return;
+          nativeFollowupSentRef.current = true;
+          nativeProcessingRef.current = true;
+          try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+          speakNativeReply('Are you still there? I’m here if you’d like to continue. What would you like help with?', () => {
+            nativeProcessingRef.current = false;
+            if (nativeVoiceActiveRef.current) startNativeRecognition();
+          });
+        }, 12000);
       };
       recognition.onresult = (event: any) => {
-        const spoken = String(event?.results?.[0]?.[0]?.transcript || '').trim();
-        setNativeVoiceListening(false);
-        if (spoken) void sendNativeVoiceMessage(spoken);
+        let spoken = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) spoken += event.results[i][0]?.transcript || '';
+        }
+        if (spoken.trim()) {
+          if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
+          nativeFollowupSentRef.current = false;
+          nativeProcessingRef.current = true;
+          setNativeVoiceListening(false);
+          void sendNativeVoiceMessage(spoken.trim());
+        }
       };
       recognition.onerror = (event: any) => {
         setNativeVoiceListening(false);
-        if (event?.error === 'no-speech' && nativeVoiceActiveRef.current) {
+        if (event?.error === 'no-speech' && nativeVoiceActiveRef.current && !nativeProcessingRef.current) {
           window.setTimeout(() => {
-            if (nativeVoiceActiveRef.current) startNativeRecognition();
-          }, 350);
-        } else if (event?.error !== 'aborted') {
+            if (nativeVoiceActiveRef.current && !nativeProcessingRef.current) startNativeRecognition();
+          }, 500);
+        } else if (event?.error !== 'aborted' && event?.error !== 'no-speech') {
           nativeVoiceActiveRef.current = false;
           setNativeVoiceActive(false);
+          setIsLiveMode(false);
           setError('Microphone access was interrupted. Check your browser microphone permission and try again.');
         }
       };
-      recognition.onend = () => setNativeVoiceListening(false);
+      recognition.onend = () => {
+        setNativeVoiceListening(false);
+        if (nativeVoiceActiveRef.current && !nativeProcessingRef.current && !window.speechSynthesis?.speaking) {
+          window.setTimeout(() => {
+            if (nativeVoiceActiveRef.current && !nativeProcessingRef.current && !window.speechSynthesis?.speaking) startNativeRecognition();
+          }, 400);
+        }
+      };
       recognition.start();
     } catch {
       nativeVoiceActiveRef.current = false;
       setNativeVoiceActive(false);
+      setIsLiveMode(false);
       setNativeVoiceListening(false);
       setError('PJ Native Voice could not start. Check microphone permission and try again.');
     }
@@ -273,9 +347,8 @@ export default function PJAssistant() {
     addLine('user', spoken);
     setError('');
     setStatus('Thinking…');
-    const resumeListening = () => {
-      if (nativeVoiceActiveRef.current) startNativeRecognition();
-    };
+    nativeProcessingRef.current = true;
+    if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
     try {
       const response = await fetch(PJ_ASSISTANT_API + '/chat', {
         method: 'POST',
@@ -283,35 +356,20 @@ export default function PJAssistant() {
         body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
       });
       const body = await response.json().catch(() => ({}));
-      if (typeof body.sessionId === 'string' && body.sessionId) {
-        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
-        chatSessionIdRef.current = body.sessionId;
-        if (sessionChanged) {
-          setMessages(current => current.filter(line =>
-            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
-          ));
-        }
-      }
+      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
       if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
         throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
       }
       addLine('agent', body.reply);
-      setStatus('PJ Native Voice is ready');
-      if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(body.reply);
-        utterance.lang = 'en-ZA';
-        utterance.rate = 1;
-        utterance.onend = resumeListening;
-        utterance.onerror = resumeListening;
-        window.speechSynthesis.speak(utterance);
-      } else {
-        resumeListening();
-      }
+      speakNativeReply(body.reply, () => {
+        nativeProcessingRef.current = false;
+        if (nativeVoiceActiveRef.current) startNativeRecognition();
+      });
     } catch (e: any) {
-      setError(e?.message || 'PJ Native Voice could not answer just now. Please try again.');
-      setStatus('PJ Native Voice is ready');
-      resumeListening();
+      const message = e?.message || 'PJ Assistant could not answer just now. Please try again.';
+      setError(message);
+      nativeProcessingRef.current = false;
+      if (nativeVoiceActiveRef.current) startNativeRecognition();
     }
   };
 
@@ -319,21 +377,35 @@ export default function PJAssistant() {
     if (nativeVoiceActiveRef.current) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('This browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
+      setError('This browser does not support continuous voice input. You can still type to PJ Assistant.');
       return;
     }
     nativeVoiceActiveRef.current = true;
+    nativeProcessingRef.current = true;
+    nativeFollowupSentRef.current = false;
     setNativeVoiceActive(true);
+    setIsLiveMode(true);
     setError('');
-    startNativeRecognition();
+    setMode('speaking');
+    const greeting = "Hi! I’m PJ Assistant, the official AI assistant for PJ Web Development. Welcome! You can ask me about websites, online stores, AI assistants, bookings, custom software and any of our digital services. What would you like to explore?";
+    addLine('agent', greeting);
+    speakNativeReply(greeting, () => {
+      nativeProcessingRef.current = false;
+      if (nativeVoiceActiveRef.current) startNativeRecognition();
+    });
   };
 
   const stopNativeVoice = () => {
     nativeVoiceActiveRef.current = false;
+    nativeProcessingRef.current = false;
     setNativeVoiceActive(false);
+    if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
+    nativeSilenceTimerRef.current = null;
     try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
     try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
     setNativeVoiceListening(false);
+    setMode('idle');
+    setIsLiveMode(false);
     setStatus('Ready for your message');
   };
 
@@ -425,7 +497,10 @@ export default function PJAssistant() {
         </div>
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
         <div className="pj-controls pj-live-controls">
-          <div className="pj-main-controls"><button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button></div>
+          <div className="pj-main-controls">
+            {nativeVoiceActive && <button className="pj-talk-button" onClick={stopNativeVoice}><MicOff size={16} /> Stop PJ Native Voice</button>}
+            {!nativeVoiceActive && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
+          </div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
