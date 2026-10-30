@@ -385,7 +385,7 @@ export default function PJAssistant() {
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
       </> : <>
-        <div className="pj-chat-heading"><div className="pj-eyebrow">PJ WEB DEVELOPMENT</div><h1 className="pj-title">Hey there. <span>What's on your mind?</span></h1><p className="pj-subtitle">Ask a question or tell me what you want to build. You can type or switch to live voice anytime.</p></div>
+        <div className="pj-chat-heading"><div className="pj-eyebrow">PJ WEB DEVELOPMENT</div><h1 className="pj-title">Hey there. <span>What's on your mind?</span></h1><p className="pj-subtitle">Ask anything about PJ Web Development — websites, online stores, AI assistants, bookings, business showcases, custom software or digital growth. Type or switch to live voice anytime.</p></div>
         <div className="pj-chat-window" aria-live="polite" aria-relevant="additions text">
           {messages.length === 0 && <div className="pj-empty-chat"><div className="pj-chat-sun"><Sparkles size={24} /></div><strong>Let's start with your idea.</strong><span>Send a message below, or tap Live Talk to speak naturally.</span></div>}
           {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
