@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Conversation } from '@elevenlabs/client';
+import { VoiceAgent, unlockAudio, prewarmVoice } from '@todoforai/voiceloop';
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
 
@@ -21,6 +21,10 @@ function SunsetOrb({ mode }: { mode: VoiceMode }) {
 
 export default function PJAssistant() {
   const conversationRef = useRef<any>(null);
+  const voiceAgentRef = useRef<any>(null);
+  const voiceAssistantDraftIdRef = useRef<number | null>(null);
+  const voiceSilenceTimerRef = useRef<number | null>(null);
+  const voiceSilenceFollowupSentRef = useRef(false);
   const endRequestedRef = useRef(false);
   const lastVoiceErrorRef = useRef('');
   const nextMessageId = useRef(1);
@@ -72,85 +76,167 @@ export default function PJAssistant() {
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
     return () => { cancelled = true; };
   }, [date]);
-  useEffect(() => { document.title = 'PJ Assistant — Talk with PJ'; return () => { try { conversationRef.current?.endSession(); } catch { /* Already closed. */ } }; }, []);
+  useEffect(() => {
+    document.title = 'PJ Assistant — Talk with PJ';
+    try { prewarmVoice(); } catch { /* Voice warmup is best-effort. */ }
+    return () => {
+      try { voiceAgentRef.current?.destroy(); } catch { /* Already closed. */ }
+      try { conversationRef.current?.endSession(); } catch { /* Already closed. */ }
+      if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+    };
+  }, []);
 
   const addLine = (role: ChatLine['role'], text: string) => {
     const clean = text?.trim();
     if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
   };
 
-  const startConversation = async (textOnly = false) => {
-    if (conversationRef.current || mode === 'connecting') return;
-    endRequestedRef.current = false;
-    lastVoiceErrorRef.current = '';
-    setIsLiveMode(!textOnly);
-    setError(''); setMode('connecting'); setStatus('Waking up the sunset…');
-    try {
-      const conversation = await Conversation.startSession({
-        agentId: AGENT_ID,
-        textOnly,
-        onStatusChange: (event: any) => {
-          const next = typeof event === 'string' ? event : event?.status;
-          if (next === 'connected') { setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you'); }
-          if (next === 'connecting') { setMode('connecting'); setStatus('Connecting securely…'); }
-          if (next === 'disconnected') {
-            conversationRef.current = null;
-            setMode('idle');
-            // Text-only sessions must never switch the visitor into Live Talk.
-            // The previous shared handler did that after any failed connection.
-            if (textOnly) {
-              setIsLiveMode(false);
-              setStatus('Text chat disconnected');
-              if (!endRequestedRef.current) {
-                setError(lastVoiceErrorRef.current || 'PJ Assistant could not connect. Please try again.');
-              }
-            } else if (endRequestedRef.current) {
-              setIsLiveMode(false);
-              setStatus('Ready when you are');
+  const startConversation = async (_textOnly = false) => {
+    if (voiceAgentRef.current || mode === 'connecting') return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('This browser does not support the voice input required for Live Talk. You can still use text chat.');
+      return;
+    }
+
+    setError('');
+    setMode('connecting');
+    setStatus('Preparing PJ Live Voice…');
+    setIsLiveMode(true);
+    voiceSilenceFollowupSentRef.current = false;
+    voiceAssistantDraftIdRef.current = null;
+
+    const agent = new VoiceAgent({
+      sttProvider: 'webspeech',
+      sttLang: 'en',
+      speed: 1.04,
+      bargeInMinChars: 2,
+      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Speak naturally in concise, warm South African English. Sound like a helpful, knowledgeable business consultant, not a scripted call centre. Keep spoken answers clear and reasonably short. Never claim to be human. The business knowledge and authoritative answers come from the PJ Web Development business assistant service.',
+      sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational, remember the conversation, answer directly, and ask one relevant follow-up when it helps. Do not read out long lists unless asked.',
+      llm: async function* (history: any[], _system: string, signal: AbortSignal) {
+        const lastIndex = history.length - 1;
+        const last = history[lastIndex];
+        const lastContent = typeof last?.content === 'string'
+          ? last.content
+          : Array.isArray(last?.content)
+            ? last.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
+            : '';
+        const trimmedMessage = String(lastContent || '').trim();
+        if (!trimmedMessage) throw new Error('I did not catch that. Please try again.');
+
+        if (trimmedMessage === '[PJ_GREETING]') {
+          yield { text: 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?' };
+          return;
+        }
+
+        const isCheckin = trimmedMessage === '[PJ_SILENCE_CHECKIN]';
+        const message = isCheckin
+          ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question that helps them continue. Do not repeat the opening greeting.'
+          : trimmedMessage;
+        const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
+          role: item.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof item.content === 'string'
+            ? item.content
+            : Array.isArray(item.content)
+              ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
+              : '',
+        })).filter((item: any) => item.content);
+
+        const response = await fetch(PJ_ASSISTANT_API + '/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal,
+          body: JSON.stringify({
+            message,
+            sessionId: chatSessionIdRef.current,
+            history: priorHistory,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
+        if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+          throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+        }
+        yield { text: body.reply.trim() };
+      },
+      onEvent: (event: any) => {
+        if (event.type === 'state') {
+          const next = event.state;
+          if (next === 'listening') {
+            setMode('listening');
+            setStatus('Listening to you');
+          } else if (next === 'thinking') {
+            setMode('connecting');
+            setStatus('Thinking…');
+          } else if (next === 'speaking') {
+            setMode('speaking');
+            setStatus('PJ Assistant is speaking');
+          }
+        }
+
+        if (event.type === 'stt') {
+          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+          voiceSilenceTimerRef.current = null;
+          if (event.turnComplete && event.text) {
+            voiceSilenceFollowupSentRef.current = false;
+            addLine('user', event.text);
+          }
+        }
+
+        if (event.type === 'assistant') {
+          const visibleText = String(event.full || event.text || '').trim();
+          if (visibleText) {
+            const existingId = voiceAssistantDraftIdRef.current;
+            if (existingId === null) {
+              const id = nextMessageId.current++;
+              voiceAssistantDraftIdRef.current = id;
+              setMessages(previous => [...previous, { id, role: 'agent', text: visibleText }].slice(-60));
             } else {
-              setIsLiveMode(true);
-              setStatus('Live Talk unavailable');
-              setError(lastVoiceErrorRef.current || 'Live Talk disconnected before it could start. Please try again.');
+              setMessages(previous => previous.map(line => line.id === existingId ? { ...line, text: visibleText } : line));
             }
           }
-        },
-        onModeChange: (event: any) => {
-          const next = typeof event === 'string' ? event : event?.mode;
-          if (next === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
-          else if (next === 'listening') { setMode('listening'); setStatus('Listening to you'); }
-        },
-        onMessage: (message: any) => {
-          const text = message?.message || message?.text || '';
-          const role = message?.source === 'user' || message?.role === 'user' ? 'user' : 'agent';
-          if (role === 'agent') addLine('agent', text);
-        },
-        onUserTranscript: (transcript: any) => {
-          const text = typeof transcript === 'string' ? transcript : transcript?.user_transcription_event?.user_transcript || transcript?.transcription_event?.user_transcript || transcript?.message || transcript?.text || transcript?.transcript || '';
-          if (text) addLine('user', text);
-        },
-        onError: (event: any) => {
-          const message = typeof event === 'string' ? event : event?.message || 'The voice connection was interrupted. Please try again.';
-          const quotaExceeded = /quota_exceeded|run out of credits|out of credits|insufficient credits/i.test(message);
-          const quotaMessage = quotaExceeded
-            ? 'ElevenLabs Live Voice is temporarily unavailable because the account has run out of credits. Continue this conversation with PJ Native Voice or text chat — your recent conversation will carry over.'
-            : message;
-          lastVoiceErrorRef.current = quotaMessage;
-          conversationRef.current = null;
-          if (quotaExceeded) endRequestedRef.current = true;
-          setError(quotaMessage);
-          setMode('idle');
-          setIsLiveMode(false);
-          setStatus(quotaExceeded ? 'PJ Native Voice is ready' : 'Live Talk unavailable');
+          if (event.final) {
+            voiceAssistantDraftIdRef.current = null;
+            if (!voiceSilenceFollowupSentRef.current && voiceAgentRef.current) {
+              if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+              voiceSilenceTimerRef.current = window.setTimeout(() => {
+                if (!voiceAgentRef.current || voiceSilenceFollowupSentRef.current) return;
+                voiceSilenceFollowupSentRef.current = true;
+                void voiceAgentRef.current.notify('[PJ_SILENCE_CHECKIN]').catch((voiceError: any) => {
+                  setError(voiceError?.message || 'PJ Assistant could not check in. You can keep typing.');
+                });
+              }, 12000);
+            }
+          }
         }
-      } as any);
-      conversationRef.current = conversation;
-      setMode('listening'); setStatus(textOnly ? 'Ready for your message' : 'Listening to you');
-    } catch (e: any) {
-      setMode('idle'); setStatus('Ready when you are');
-      setError(e?.message || 'Could not start voice. Check microphone permission and try again.');
+
+        if (event.type === 'error') {
+          const message = event.error?.message || String(event.error || 'The voice session encountered a problem.');
+          setError(message);
+          setStatus('Voice connection needs attention');
+        }
+      },
+    });
+
+    voiceAgentRef.current = agent;
+    try {
+      // Must be called synchronously from this tap for mobile browser audio policies.
+      unlockAudio();
+      await agent.start();
+      setMode('listening');
+      setStatus('Listening to you');
+      void agent.notify('[PJ_GREETING]').catch((voiceError: any) => {
+        setError(voiceError?.message || 'PJ Assistant could not start its spoken greeting.');
+      });
+    } catch (voiceError: any) {
+      try { agent.destroy(); } catch { /* Release any partially opened microphone. */ }
+      if (voiceAgentRef.current === agent) voiceAgentRef.current = null;
+      setIsLiveMode(false);
+      setMode('idle');
+      setStatus('Ready when you are');
+      setError(voiceError?.message || 'PJ Live Voice could not start. Check microphone permission and try again.');
     }
   };
-
   const switchToLive = async () => {
     if (conversationRef.current && !isLiveMode) {
       const current = conversationRef.current;
@@ -163,13 +249,16 @@ export default function PJAssistant() {
 
   const endVoice = async () => {
     if (nativeVoiceActiveRef.current) stopNativeVoice();
+    if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+    voiceSilenceTimerRef.current = null;
+    const current = voiceAgentRef.current;
+    voiceAgentRef.current = null;
+    try { current?.destroy(); } catch { /* Already ended. */ }
     endRequestedRef.current = true;
     setIsLiveMode(false);
-    const current = conversationRef.current; conversationRef.current = null;
-    try { await current?.endSession(); } catch { /* Already ended. */ }
-    setMode('idle'); setStatus('Ready when you are');
+    setMode('idle');
+    setStatus('Ready when you are');
   };
-
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
@@ -178,19 +267,14 @@ export default function PJAssistant() {
     setError('');
     setDraft('');
 
-    // Typed messages inside ElevenLabs Live must go through the active voice session.
-    // That lets ElevenLabs generate both the transcript and spoken audio.
-    if (conversationRef.current && isLiveMode && !nativeVoiceActiveRef.current) {
-      try {
-        await conversationRef.current.sendUserMessage(text);
-      } catch (e: any) {
-        setError(e?.message || 'Your message could not be sent into the live conversation.');
-      } finally {
-        setIsSending(false);
-      }
+    // Typed messages in PJ Live use the same voice-agent turn loop and are spoken back.
+    if (voiceAgentRef.current && isLiveMode) {
+      const accepted = voiceAgentRef.current.sendUserText(text);
+      if (!accepted) setError('That message could not be added to the live conversation.');
+      else setStatus('Thinking…');
+      setIsSending(false);
       return;
     }
-
     addLine('user', text);
     const resumeNative = nativeVoiceActiveRef.current;
     if (resumeNative) {
