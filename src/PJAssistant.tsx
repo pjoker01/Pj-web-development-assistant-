@@ -38,6 +38,8 @@ export default function PJAssistant() {
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
+  const nativeRecognitionRef = useRef<any>(null);
+  const [nativeVoiceListening, setNativeVoiceListening] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -123,14 +125,17 @@ export default function PJAssistant() {
         },
         onError: (event: any) => {
           const message = typeof event === 'string' ? event : event?.message || 'The voice connection was interrupted. Please try again.';
-          const quotaMessage = /quota_exceeded|run out of credits|out of credits|insufficient credits/i.test(message)
-            ? 'Live Talk is temporarily unavailable because the ElevenLabs account has run out of credits. Text chat remains available; voice will work again when credits are restored.'
+          const quotaExceeded = /quota_exceeded|run out of credits|out of credits|insufficient credits/i.test(message);
+          const quotaMessage = quotaExceeded
+            ? 'ElevenLabs Live Voice is temporarily unavailable because the account has run out of credits. Continue this conversation with PJ Native Voice or text chat — your recent conversation will carry over.'
             : message;
           lastVoiceErrorRef.current = quotaMessage;
           conversationRef.current = null;
+          if (quotaExceeded) endRequestedRef.current = true;
           setError(quotaMessage);
           setMode('idle');
-          setStatus('Live Talk unavailable');
+          setIsLiveMode(false);
+          setStatus(quotaExceeded ? 'PJ Native Voice is ready' : 'Live Talk unavailable');
         }
       } as any);
       conversationRef.current = conversation;
@@ -171,7 +176,14 @@ export default function PJAssistant() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId: chatSessionIdRef.current }),
+        body: JSON.stringify({
+          message: text,
+          sessionId: chatSessionIdRef.current,
+          history: [...messages.slice(-20).map(line => ({
+            role: line.role === 'agent' ? 'assistant' : 'user',
+            content: line.text,
+          })), { role: 'user', content: text }],
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
@@ -184,6 +196,85 @@ export default function PJAssistant() {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const sendNativeVoiceMessage = async (spoken: string) => {
+    const history = [
+      ...messages.slice(-20).map(line => ({
+        role: line.role === 'agent' ? 'assistant' : 'user',
+        content: line.text,
+      })),
+      { role: 'user', content: spoken },
+    ];
+    addLine('user', spoken);
+    setError('');
+    setStatus('Thinking…');
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      }
+      addLine('agent', body.reply);
+      setStatus('PJ Native Voice is ready');
+      if ('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(body.reply);
+        utterance.lang = 'en-ZA';
+        utterance.rate = 1;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'PJ Native Voice could not answer just now. Please try again.');
+      setStatus('Ready for your message');
+    }
+  };
+
+  const startNativeVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Your browser does not support native voice input. You can continue by typing, or use your phone keyboard microphone.');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      nativeRecognitionRef.current = recognition;
+      recognition.lang = 'en-ZA';
+      recognition.interimResults = false;
+      recognition.continuous = false;
+      recognition.onstart = () => {
+        setNativeVoiceListening(true);
+        setError('');
+        setStatus('PJ Native Voice is listening');
+      };
+      recognition.onresult = (event: any) => {
+        const spoken = String(event?.results?.[0]?.[0]?.transcript || '').trim();
+        setNativeVoiceListening(false);
+        if (spoken) void sendNativeVoiceMessage(spoken);
+      };
+      recognition.onerror = (event: any) => {
+        setNativeVoiceListening(false);
+        if (event?.error !== 'no-speech' && event?.error !== 'aborted') {
+          setError('Microphone access was interrupted. Check your browser microphone permission and try again.');
+        }
+      };
+      recognition.onend = () => setNativeVoiceListening(false);
+      recognition.start();
+    } catch {
+      setNativeVoiceListening(false);
+      setError('PJ Native Voice could not start. Check microphone permission and try again.');
+    }
+  };
+
+  const stopNativeVoice = () => {
+    try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
+    try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
+    setNativeVoiceListening(false);
+    setStatus('Ready for your message');
   };
 
   const toggleText = () => {
@@ -285,7 +376,11 @@ export default function PJAssistant() {
           {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
           <div ref={transcriptEndRef} />
         </div>
-        {error && <div className="pj-error" role="alert">{error} <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button></div>}
+        {error && <div className="pj-error" role="alert">
+          {error}
+          {/ElevenLabs Live Voice is temporarily unavailable/i.test(error) && <button className="pj-text-toggle" onClick={nativeVoiceListening ? stopNativeVoice : startNativeVoice} style={{ marginLeft: 8 }}><Mic size={14} /> {nativeVoiceListening ? 'Listening…' : 'Continue with PJ Native Voice'}</button>}
+          <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>
+        </div>}
         <div className="pj-chat-compose">
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
             <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
