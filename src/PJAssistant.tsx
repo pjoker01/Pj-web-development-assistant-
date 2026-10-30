@@ -246,7 +246,9 @@ export default function PJAssistant() {
           nativeFollowupSentRef.current = true;
           nativeProcessingRef.current = true;
           try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
-          speakNativeReply('Are you still there? I’m here if you’d like to continue. What would you like help with?', () => {
+          const checkin = 'Are you still there? I’m here if you’d like to continue. What would you like help with?';
+          addLine('agent', checkin);
+          speakNativeReply(checkin, () => {
             nativeProcessingRef.current = false;
             if (nativeVoiceActiveRef.current) startNativeRecognition();
           });
@@ -254,8 +256,17 @@ export default function PJAssistant() {
       };
       recognition.onresult = (event: any) => {
         let spoken = '';
+        let hasInterimSpeech = false;
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (event.results[i].isFinal) spoken += event.results[i][0]?.transcript || '';
+          const transcript = event.results[i][0]?.transcript || '';
+          if (transcript.trim()) {
+            if (event.results[i].isFinal) spoken += transcript;
+            else hasInterimSpeech = true;
+          }
+        }
+        if (hasInterimSpeech && nativeSilenceTimerRef.current !== null) {
+          window.clearTimeout(nativeSilenceTimerRef.current);
+          nativeSilenceTimerRef.current = null;
         }
         if (spoken.trim()) {
           if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
