@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { PiperTTS, VoiceAgent, unlockAudio, prewarmVoice } from '@todoforai/voiceloop';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
@@ -21,9 +22,10 @@ function SunsetOrb({ mode, level }: { mode: VoiceMode; level: number }) {
 
 export default function PJAssistant() {
   const nextMessageId = useRef(2);
-  const micMeterStreamRef = useRef<MediaStream | null>(null);
-  const micMeterContextRef = useRef<AudioContext | null>(null);
-  const micMeterRafRef = useRef<number | null>(null);
+  const voiceAgentRef = useRef<any>(null);
+  const voiceAssistantDraftIdRef = useRef<number | null>(null);
+  const voiceSilenceTimerRef = useRef<number | null>(null);
+  const voiceSilenceFollowupSentRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [intro, setIntro] = useState(true);
@@ -39,13 +41,7 @@ export default function PJAssistant() {
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
-  const nativeRecognitionRef = useRef<any>(null);
-  const nativeProcessingRef = useRef(false);
-  const nativeSilenceTimerRef = useRef<number | null>(null);
-  const nativeFollowupSentRef = useRef(false);
-  const [nativeVoiceListening, setNativeVoiceListening] = useState(false);
-  const nativeVoiceActiveRef = useRef(false);
-  const [nativeVoiceActive, setNativeVoiceActive] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -75,13 +71,12 @@ export default function PJAssistant() {
   }, [date]);
   useEffect(() => {
     document.title = 'PJ Assistant — Talk with PJ';
+    try { prewarmVoice(); } catch { /* Voice model warmup is best-effort. */ }
     return () => {
-      nativeVoiceActiveRef.current = false;
-      if (micMeterRafRef.current !== null) window.cancelAnimationFrame(micMeterRafRef.current);
-      micMeterStreamRef.current?.getTracks().forEach(track => track.stop());
-      try { void micMeterContextRef.current?.close(); } catch { /* Audio context may already be closed. */ }
-      try { nativeRecognitionRef.current?.stop(); } catch { /* Recognition may already be stopped. */ }
-      try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
+      const agent = voiceAgentRef.current;
+      voiceAgentRef.current = null;
+      try { agent?.destroy(); } catch { /* Voice session may already be closed. */ }
+      if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
     };
   }, []);
 
@@ -91,312 +86,112 @@ export default function PJAssistant() {
   };
 
   const switchToLive = async () => {
-    if (!nativeVoiceActiveRef.current) await startNativeVoice();
-  };
-
-  const endVoice = async () => {
-    stopNativeVoice();
-  };
-  const sendText = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text || isSending) return;
-    setIsSending(true);
-    setError('');
-    setDraft('');
-
-    addLine('user', text);
-    const resumeNative = nativeVoiceActiveRef.current;
-    if (resumeNative) {
-      nativeProcessingRef.current = true;
-      if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
-      try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
-      setNativeVoiceListening(false);
-    }
-
-    try {
-      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          sessionId: chatSessionIdRef.current,
-          history: messages.slice(-20).map(line => ({
-            role: line.role === 'agent' ? 'assistant' : 'user',
-            content: line.text,
-          })),
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (typeof body.sessionId === 'string' && body.sessionId) {
-        const sessionChanged = body.sessionId !== chatSessionIdRef.current;
-        chatSessionIdRef.current = body.sessionId;
-        if (sessionChanged) {
-          setMessages(current => current.filter(line =>
-            !(line.role === 'agent' && /7-day free trial has ended|seven-day free trial has ended|shop and online services are temporarily unavailable/i.test(line.text))
-          ));
+    if (voiceAgentRef.current || mode === 'connecting') return;
+    setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…'); setIsLiveMode(true); setVoiceActive(true);
+    voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
+    const agent = new VoiceAgent({
+      sttProvider: 'webspeech', sttLang: 'en-ZA',
+      tts: new PiperTTS('en_US-ryan-high'), speed: 1.02, bargeInMinChars: 2,
+      keyterms: ['PJ Web Development', 'PJ Assistant', 'Pretoria', 'Sunnyside', 'WhatsApp', 'website', 'ecommerce'],
+      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Your voice is a warm, confident young adult male. Speak in natural, relaxed South African English: friendly, clear, grounded and conversational. Avoid call-centre delivery, robotic phrasing, exaggerated enthusiasm or long monologues. Use contractions and natural pauses. You are an AI assistant; never claim to be human.',
+      sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational and helpful. Answer directly, remember the conversation, and ask one relevant follow-up when useful. Keep spoken answers concise unless the visitor asks for detail.',
+      llm: async function* (history: any[], _system: string, signal: AbortSignal) {
+        const lastIndex = history.length - 1, last = history[lastIndex];
+        const lastContent = typeof last?.content === 'string' ? last.content : Array.isArray(last?.content) ? last.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ') : '';
+        const incoming = String(lastContent || '').trim();
+        if (!incoming) throw new Error('I did not catch that. Please try again.');
+        if (incoming === '[PJ_GREETING]') { yield { text: 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?' }; return; }
+        const isCheckin = incoming === '[PJ_SILENCE_CHECKIN]';
+        const message = isCheckin ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question. Do not repeat the opening greeting.' : incoming;
+        const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
+          role: item.role === 'assistant' ? 'assistant' : 'user',
+          content: typeof item.content === 'string' ? item.content : Array.isArray(item.content) ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ') : '',
+        })).filter((item: any) => item.content);
+        const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ message, sessionId: chatSessionIdRef.current, history: priorHistory }) });
+        const body = await response.json().catch(() => ({}));
+        if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
+        if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+        yield { text: body.reply.trim() };
+      },
+      onEvent: (event: any) => {
+        if (event.type === 'state') {
+          if (event.state === 'listening') { setMode('listening'); setStatus('Listening to you'); }
+          else if (event.state === 'thinking') { setMode('connecting'); setStatus('Thinking…'); }
+          else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
-      }
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
-        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
-      }
-      addLine('agent', body.reply);
-      setStatus(resumeNative ? 'PJ Native Voice is speaking' : 'Ready for your message');
-      if (resumeNative) {
-        speakNativeReply(body.reply, () => {
-          nativeProcessingRef.current = false;
-          if (nativeVoiceActiveRef.current) startNativeRecognition();
-        });
-      }
-    } catch (e: any) {
-      setError(e?.message || 'That message could not be sent. Please try again.');
-      if (resumeNative) {
-        nativeProcessingRef.current = false;
-        if (nativeVoiceActiveRef.current) startNativeRecognition();
-      }
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const speakNativeReply = (text: string, onComplete?: () => void) => {
-    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
-      onComplete?.();
-      return;
-    }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-ZA';
-    utterance.rate = 0.98;
-    utterance.pitch = 1;
-    utterance.onend = () => onComplete?.();
-    utterance.onerror = () => onComplete?.();
-    setMode('speaking');
-    setStatus('PJ Assistant is speaking');
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const stopMicMeter = () => {
-    if (micMeterRafRef.current !== null) window.cancelAnimationFrame(micMeterRafRef.current);
-    micMeterRafRef.current = null;
-    micMeterStreamRef.current?.getTracks().forEach(track => track.stop());
-    micMeterStreamRef.current = null;
-    const context = micMeterContextRef.current;
-    micMeterContextRef.current = null;
-    if (context && context.state !== 'closed') void context.close().catch(() => undefined);
-    setMicLevel(0);
-  };
-
-  const startMicMeter = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
-    micMeterStreamRef.current = stream;
-    const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextConstructor) return;
-    const context: AudioContext = new AudioContextConstructor();
-    micMeterContextRef.current = context;
-    await context.resume();
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 512;
-    context.createMediaStreamSource(stream).connect(analyser);
-    const samples = new Uint8Array(analyser.fftSize);
-    let frame = 0;
-    const measure = () => {
-      analyser.getByteTimeDomainData(samples);
-      let energy = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const sample = (samples[i] - 128) / 128;
-        energy += sample * sample;
-      }
-      const rms = Math.sqrt(energy / samples.length);
-      const level = Math.min(1, rms * 7);
-      // Limit React updates while keeping the solar orb visibly responsive to real mic input.
-      if (frame++ % 4 === 0) setMicLevel(level);
-      micMeterRafRef.current = window.requestAnimationFrame(measure);
-    };
-    measure();
-  };
-
-  const startNativeRecognition = () => {
-    if (!nativeVoiceActiveRef.current || nativeProcessingRef.current) return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      nativeVoiceActiveRef.current = false;
-      setNativeVoiceActive(false);
-      setIsLiveMode(false);
-      setError('This browser does not support continuous voice input. You can still type to PJ Assistant.');
-      return;
-    }
-    try {
-      const recognition = new SpeechRecognition();
-      nativeRecognitionRef.current = recognition;
-      recognition.lang = 'en-ZA';
-      recognition.interimResults = true;
-      recognition.continuous = false;
-      recognition.onstart = () => {
-        setNativeVoiceListening(true);
-        setMode('listening');
-        setError('');
-        setStatus('PJ Native Voice is listening');
-        if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
-        nativeSilenceTimerRef.current = window.setTimeout(() => {
-          if (!nativeVoiceActiveRef.current || nativeProcessingRef.current || nativeFollowupSentRef.current) return;
-          nativeFollowupSentRef.current = true;
-          nativeProcessingRef.current = true;
-          try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
-          const checkin = 'Are you still there? I’m here if you’d like to continue. What would you like help with?';
-          addLine('agent', checkin);
-          speakNativeReply(checkin, () => {
-            nativeProcessingRef.current = false;
-            if (nativeVoiceActiveRef.current) startNativeRecognition();
-          });
-        }, 12000);
-      };
-      recognition.onresult = (event: any) => {
-        let spoken = '';
-        let hasInterimSpeech = false;
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0]?.transcript || '';
-          if (transcript.trim()) {
-            if (event.results[i].isFinal) spoken += transcript;
-            else hasInterimSpeech = true;
+        if (event.type === 'level' && typeof event.level === 'number') setMicLevel(previous => Math.max(event.level, previous * 0.72));
+        if (event.type === 'stt' && event.turnComplete && event.text) {
+          voiceSilenceFollowupSentRef.current = false; addLine('user', event.text);
+          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+          voiceSilenceTimerRef.current = null;
+        }
+        if (event.type === 'assistant') {
+          const visibleText = String(event.full || event.text || '').trim();
+          if (visibleText) {
+            const existingId = voiceAssistantDraftIdRef.current;
+            if (existingId === null) { const id = nextMessageId.current++; voiceAssistantDraftIdRef.current = id; setMessages(previous => [...previous, { id, role: 'agent', text: visibleText }].slice(-60)); }
+            else setMessages(previous => previous.map(line => line.id === existingId ? { ...line, text: visibleText } : line));
+          }
+          if (event.final) {
+            voiceAssistantDraftIdRef.current = null;
+            if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+            voiceSilenceTimerRef.current = window.setTimeout(() => {
+              if (!voiceAgentRef.current || voiceSilenceFollowupSentRef.current) return;
+              voiceSilenceFollowupSentRef.current = true;
+              void voiceAgentRef.current.notify('[PJ_SILENCE_CHECKIN]').catch((err: any) => setError(err?.message || 'PJ Assistant could not check in. You can keep typing.'));
+            }, 12000);
           }
         }
-        if (hasInterimSpeech && nativeSilenceTimerRef.current !== null) {
-          window.clearTimeout(nativeSilenceTimerRef.current);
-          nativeSilenceTimerRef.current = null;
+        if (event.type === 'error') {
+          const detail = event.error?.message || String(event.error || 'The voice session encountered a problem.');
+          setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, set Microphone to Allow, then tap Live Talk again.' : detail);
         }
-        if (spoken.trim()) {
-          if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
-          nativeFollowupSentRef.current = false;
-          nativeProcessingRef.current = true;
-          setNativeVoiceListening(false);
-          void sendNativeVoiceMessage(spoken.trim());
-        }
-      };
-      recognition.onerror = (event: any) => {
-        setNativeVoiceListening(false);
-        if (event?.error === 'no-speech' && nativeVoiceActiveRef.current && !nativeProcessingRef.current) {
-          window.setTimeout(() => {
-            if (nativeVoiceActiveRef.current && !nativeProcessingRef.current) startNativeRecognition();
-          }, 500);
-        } else if (event?.error !== 'aborted' && event?.error !== 'no-speech') {
-          nativeVoiceActiveRef.current = false;
-          setNativeVoiceActive(false);
-          setIsLiveMode(false);
-          setMode('idle');
-          stopMicMeter();
-          setError(event?.error === 'not-allowed'
-            ? 'Chrome blocked microphone access. Allow microphone permission for assistant.pjwebdev.online, then try again.'
-            : 'Microphone access was interrupted. Check your browser microphone permission and try again.');
-        }
-      };
-      recognition.onend = () => {
-        setNativeVoiceListening(false);
-        if (nativeVoiceActiveRef.current && !nativeProcessingRef.current && !window.speechSynthesis?.speaking) {
-          window.setTimeout(() => {
-            if (nativeVoiceActiveRef.current && !nativeProcessingRef.current && !window.speechSynthesis?.speaking) startNativeRecognition();
-          }, 400);
-        }
-      };
-      recognition.start();
-    } catch {
-      nativeVoiceActiveRef.current = false;
-      setNativeVoiceActive(false);
-      setIsLiveMode(false);
-      setMode('idle');
-      setNativeVoiceListening(false);
-      stopMicMeter();
-      setError('PJ Native Voice could not start. Check microphone permission and try again.');
+      },
+    });
+    voiceAgentRef.current = agent;
+    try {
+      unlockAudio();
+      await agent.start();
+      setMode('listening'); setStatus('Listening to you');
+      void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
+    } catch (err: any) {
+      try { agent.destroy(); } catch { /* Release partial session. */ }
+      if (voiceAgentRef.current === agent) voiceAgentRef.current = null;
+      setVoiceActive(false); setIsLiveMode(false); setMode('idle'); setStatus('Ready when you are');
+      const detail = err?.message || 'PJ Live Voice could not start.';
+      setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Chrome has not allowed microphone access. Tap the site icon beside the address, open Permissions, set Microphone to Allow, then reload and try again.' : detail + ' Please check microphone permission and try again.');
     }
   };
 
-  const sendNativeVoiceMessage = async (spoken: string) => {
-    const history = messages.slice(-20).map(line => ({
-      role: line.role === 'agent' ? 'assistant' : 'user',
-      content: line.text,
-    }));
-    addLine('user', spoken);
-    setError('');
-    setStatus('Thinking…');
-    nativeProcessingRef.current = true;
-    if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
+  const endVoice = () => {
+    if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+    voiceSilenceTimerRef.current = null;
+    const current = voiceAgentRef.current; voiceAgentRef.current = null;
+    try { current?.destroy(); } catch { /* Already ended. */ }
+    setVoiceActive(false); setMicLevel(0); setIsLiveMode(false); setMode('idle'); setStatus('Ready for your message');
+  };
+
+  const sendText = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const text = draft.trim(); if (!text || isSending) return;
+    setIsSending(true); setError(''); setDraft('');
+    if (voiceAgentRef.current && isLiveMode) {
+      const accepted = voiceAgentRef.current.sendUserText(text);
+      if (!accepted) setError('That message could not be added to the live conversation.');
+      else setStatus('Thinking…');
+      setIsSending(false); return;
+    }
+    addLine('user', text);
     try {
-      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
-      });
+      const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        message: text, sessionId: chatSessionIdRef.current,
+        history: messages.slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' : 'user', content: line.text })),
+      }) });
       const body = await response.json().catch(() => ({}));
       if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
-        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
-      }
-      addLine('agent', body.reply);
-      speakNativeReply(body.reply, () => {
-        nativeProcessingRef.current = false;
-        if (nativeVoiceActiveRef.current) startNativeRecognition();
-      });
-    } catch (e: any) {
-      const message = e?.message || 'PJ Assistant could not answer just now. Please try again.';
-      setError(message);
-      nativeProcessingRef.current = false;
-      if (nativeVoiceActiveRef.current) startNativeRecognition();
-    }
-  };
-
-  const startNativeVoice = async () => {
-    if (nativeVoiceActiveRef.current) return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError('Live voice input is not supported in this browser. Please use Chrome on Android or type your message.');
-      return;
-    }
-    setError('');
-    setMode('connecting');
-    setStatus('Requesting microphone access…');
-    setIsLiveMode(true);
-    try {
-      // Explicitly request microphone permission on this tap and measure real input
-      // so the PJ sunset orb reacts to the visitor's voice, not just a fake animation.
-      await startMicMeter();
-    } catch (micError: any) {
-      stopMicMeter();
-      setIsLiveMode(false);
-      setMode('idle');
-      setError(micError?.name === 'NotAllowedError'
-        ? 'Microphone permission is blocked. Allow microphone access for assistant.pjwebdev.online in Chrome site settings, then try again.'
-        : micError?.message || 'PJ Assistant could not access your microphone. Check Chrome microphone permission and try again.');
-      return;
-    }
-    nativeVoiceActiveRef.current = true;
-    nativeProcessingRef.current = true;
-    nativeFollowupSentRef.current = false;
-    setNativeVoiceActive(true);
-    setError('');
-    setMode('speaking');
-    setStatus('Welcome to PJ Web Development');
-    speakNativeReply(WELCOME_MESSAGE, () => {
-      nativeProcessingRef.current = false;
-      if (nativeVoiceActiveRef.current) startNativeRecognition();
-    });
-  };
-
-  const stopNativeVoice = () => {
-    nativeVoiceActiveRef.current = false;
-    nativeProcessingRef.current = false;
-    setNativeVoiceActive(false);
-    if (nativeSilenceTimerRef.current !== null) window.clearTimeout(nativeSilenceTimerRef.current);
-    nativeSilenceTimerRef.current = null;
-    try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
-    try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
-    stopMicMeter();
-    setNativeVoiceListening(false);
-    setMode('idle');
-    setIsLiveMode(false);
-    setStatus('Ready for your message');
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      addLine('agent', body.reply); setStatus('Ready for your message');
+    } catch (err: any) { setError(err?.message || 'That message could not be sent. Please try again.'); }
+    finally { setIsSending(false); }
   };
 
   const toggleText = () => {
@@ -488,8 +283,8 @@ export default function PJAssistant() {
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            {nativeVoiceActive && <button className="pj-talk-button" onClick={stopNativeVoice}><MicOff size={16} /> Stop PJ Native Voice</button>}
-            {!nativeVoiceActive && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
+            {voiceActive && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
+            {!voiceActive && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
           </div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
@@ -499,10 +294,9 @@ export default function PJAssistant() {
           {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
           <div ref={transcriptEndRef} />
         </div>
-        {(error || nativeVoiceActive) && <div className="pj-error" role={error ? 'alert' : 'status'}>
-          {error && <span>{error}</span>}
-          {nativeVoiceActive && <button className="pj-text-toggle" onClick={stopNativeVoice} style={{ marginLeft: 8 }}><MicOff size={14} /> Stop PJ Native Voice</button>}
-          {error && <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>}
+        {error && <div className="pj-error" role="alert">
+          <span>{error}</span>
+          <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>
         </div>}
         <div className="pj-chat-compose">
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
