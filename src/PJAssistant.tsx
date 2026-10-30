@@ -31,6 +31,7 @@ export default function PJAssistant() {
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([]);
+  const chatSessionIdRef = useRef('pjassistant-' + (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)));
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [textMode, setTextMode] = useState(false);
@@ -164,12 +165,20 @@ export default function PJAssistant() {
     if (!text || isSending) return;
     setIsSending(true);
     setError('');
+    addLine('user', text);
+    setDraft('');
     try {
-      if (!conversationRef.current) await startConversation(true);
-      if (!conversationRef.current) throw new Error('Chat could not connect. Please try again.');
-      addLine('user', text);
-      await conversationRef.current.sendUserMessage(text);
-      setDraft('');
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, sessionId: chatSessionIdRef.current }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
+        throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      }
+      addLine('agent', body.reply);
+      setStatus('Ready for your message');
     } catch (e: any) {
       setError(e?.message || 'That message could not be sent. Please try again.');
     } finally {
