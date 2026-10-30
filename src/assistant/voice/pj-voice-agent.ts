@@ -59,13 +59,26 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
   });
 }
 
+type VoiceAgentLike = Pick<VoiceAgent, 'start' | 'destroy' | 'notify' | 'sendUserText'>;
+type VoiceAgentFactory = (options: PJVoiceAgentOptions) => VoiceAgentLike;
+
 export type PJVoiceSession = ReturnType<typeof createPJVoiceSession>;
 
 /** Owns the one Live Talk microphone session and makes teardown idempotent. */
-export function createPJVoiceSession(options: PJVoiceAgentOptions) {
-  const agent = createPJVoiceAgent(options);
+export function createPJVoiceSession(
+  options: PJVoiceAgentOptions,
+  agentFactory: VoiceAgentFactory = createPJVoiceAgent,
+) {
+  const agent = agentFactory(options);
   let started = false;
   let destroyed = false;
+
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    started = false;
+    try { agent.destroy(); } catch { /* The underlying agent may already be closed. */ }
+  };
 
   return {
     async start() {
@@ -76,16 +89,11 @@ export function createPJVoiceSession(options: PJVoiceAgentOptions) {
       try {
         await agent.start();
       } catch (error) {
-        this.destroy();
+        destroy();
         throw error;
       }
     },
-    destroy() {
-      if (destroyed) return;
-      destroyed = true;
-      started = false;
-      try { agent.destroy(); } catch { /* The underlying agent may already be closed. */ }
-    },
+    destroy,
     notify(message: string) {
       if (!started || destroyed) return Promise.reject(new Error('PJ Live Talk is not active.'));
       return agent.notify(message);
