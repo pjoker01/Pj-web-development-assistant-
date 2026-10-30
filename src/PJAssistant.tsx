@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, Chevro
 import './PJSunset.css';
 
 const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
-const BOOKING_API = 'https://chat.pjwebdev.online/api/pj-assistant';
+const PJ_ASSISTANT_API = 'https://chat.pjwebdev.online/api/pj-assistant';
 type Slot = { start: string; end: string; available: boolean };
 type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
@@ -61,7 +61,7 @@ export default function PJAssistant() {
   useEffect(() => {
     let cancelled = false;
     setSlots([]); setSelectedSlot(''); setBookingError('');
-    fetch(BOOKING_API + '/booking-availability?date=' + encodeURIComponent(date))
+    fetch(PJ_ASSISTANT_API + '/booking-availability?date=' + encodeURIComponent(date))
       .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load availability.'); return body; })
       .then(body => { if (!cancelled) setSlots(Array.isArray(body.slots) ? body.slots.filter((slot: Slot) => slot.available) : []); })
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
@@ -173,19 +173,21 @@ export default function PJAssistant() {
     addLine('user', text);
     setDraft('');
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
           sessionId: chatSessionIdRef.current,
-          history: [...messages.slice(-20).map(line => ({
+          history: messages.slice(-20).map(line => ({
             role: line.role === 'agent' ? 'assistant' : 'user',
             content: line.text,
-          })), { role: 'user', content: text }],
+          })),
         }),
       });
       const body = await response.json().catch(() => ({}));
+      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
+      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
       if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
         throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
       }
@@ -199,18 +201,15 @@ export default function PJAssistant() {
   };
 
   const sendNativeVoiceMessage = async (spoken: string) => {
-    const history = [
-      ...messages.slice(-20).map(line => ({
-        role: line.role === 'agent' ? 'assistant' : 'user',
-        content: line.text,
-      })),
-      { role: 'user', content: spoken },
-    ];
+    const history = messages.slice(-20).map(line => ({
+      role: line.role === 'agent' ? 'assistant' : 'user',
+      content: line.text,
+    }));
     addLine('user', spoken);
     setError('');
     setStatus('Thinking…');
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(PJ_ASSISTANT_API + '/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: spoken, sessionId: chatSessionIdRef.current, history }),
