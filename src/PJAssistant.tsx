@@ -148,6 +148,7 @@ export default function PJAssistant() {
     try {
       // The session controller starts VoiceLoop directly from this user gesture.
       await agent.start();
+      if (voiceAgentRef.current !== agent) return;
       setMode('listening'); setStatus('Listening to you');
       void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
     } catch (err: any) {
