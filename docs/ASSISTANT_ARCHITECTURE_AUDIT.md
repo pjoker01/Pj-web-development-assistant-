@@ -140,3 +140,19 @@ The following changes have been committed to the redesign branch only (not deplo
 5. Perform the physical Android Chrome microphone test and confirm the production alias points to the exact tested commit. Do not deploy before these gates pass.
 
 **Current status:** architecture refactor in progress; no production deployment or main-branch change has been made. GitHub Actions did not report any workflow runs for the latest branch commit, and the local checkout/build could not be executed in this environment.
+
+## Release verification — 2026-10-30
+
+A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06bbf` was installed and built successfully.
+
+- `npm install --no-audit --no-fund`: completed.
+- `npm run test`: **7 passed, 0 failed**.
+- `npm run lint` (`tsc --noEmit`): passed.
+- `vite build`: passed; 1,673 modules transformed and production assets emitted.
+- The build gate now runs tests, TypeScript checking, and Vite build in sequence.
+- The first TypeScript run exposed a pre-existing unclosed `SYSTEM_INSTRUCTION` template literal in `server.ts`; that syntax error has been repaired. Strict typing issues in the refactor were also fixed.
+- Read-only live platform smoke checks returned HTTP 200 for `/api/health` and `/api/pj-assistant/booking-availability?date=2026-11-02`; the latter returned available slots. No test booking or production chat message was created.
+- Vercel preview/production deployment creation is currently blocked by the account's `api-deployments-free-per-day` limit (HTTP 402, retry after 24 hours). The production alias has therefore not been updated.
+- Physical Android Chrome microphone testing has not been performed and cannot be simulated by the build.
+
+**Release status:** code tests and production build pass. Not yet deployed. Do not state that the assistant is live until a successful deployment is assigned to `assistant.pjwebdev.online` and that exact production alias is verified.
