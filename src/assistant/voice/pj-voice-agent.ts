@@ -38,7 +38,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
         ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question. Do not repeat the opening greeting.'
         : incoming;
       const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
-        role: item.role === 'assistant' ? 'assistant' : 'user',
+        role: item.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: typeof item.content === 'string'
           ? item.content
           : Array.isArray(item.content)
