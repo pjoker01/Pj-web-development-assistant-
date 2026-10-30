@@ -1,40 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { VoiceAgent, unlockAudio, prewarmVoice } from '@todoforai/voiceloop';
+
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
 
-const AGENT_ID = 'agent_7301m5zb2r3efxr9s2dtr76m4fjy';
 const PJ_ASSISTANT_API = 'https://chat.pjwebdev.online/api/pj-assistant';
 type Slot = { start: string; end: string; available: boolean };
 type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
+const WELCOME_MESSAGE = "Hi, welcome to PJ Web Development. I'm PJ Assistant. What can I help you with today?";
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
 
-function SunsetOrb({ mode }: { mode: VoiceMode }) {
+function SunsetOrb({ mode, level }: { mode: VoiceMode; level: number }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
-    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
+    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-mic-meter" style={{ opacity: 0.12 + level * 0.78, transform: `scale(${1 + level * 0.22})` }} /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
     <div className="sun-orb"><div className="sun-corona" /><div className="sun-gloss" /><div className="sun-plasma plasma-one" /><div className="sun-plasma plasma-two" /><div className="sun-limb" /></div>
     <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
   </div>;
 }
 
 export default function PJAssistant() {
-  const conversationRef = useRef<any>(null);
-  const voiceAgentRef = useRef<any>(null);
-  const voiceAssistantDraftIdRef = useRef<number | null>(null);
-  const voiceSilenceTimerRef = useRef<number | null>(null);
-  const voiceSilenceFollowupSentRef = useRef(false);
-  const endRequestedRef = useRef(false);
-  const lastVoiceErrorRef = useRef('');
-  const nextMessageId = useRef(1);
+  const nextMessageId = useRef(2);
+  const micMeterStreamRef = useRef<MediaStream | null>(null);
+  const micMeterContextRef = useRef<AudioContext | null>(null);
+  const micMeterRafRef = useRef<number | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [intro, setIntro] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
-  const [messages, setMessages] = useState<ChatLine[]>([]);
+  const [messages, setMessages] = useState<ChatLine[]>([{ id: 1, role: 'agent', text: WELCOME_MESSAGE }]);
+  const [micLevel, setMicLevel] = useState(0);
   const chatSessionIdRef = useRef('pjassistant-' + (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)));
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -78,11 +75,13 @@ export default function PJAssistant() {
   }, [date]);
   useEffect(() => {
     document.title = 'PJ Assistant — Talk with PJ';
-    try { prewarmVoice(); } catch { /* Voice warmup is best-effort. */ }
     return () => {
-      try { voiceAgentRef.current?.destroy(); } catch { /* Already closed. */ }
-      try { conversationRef.current?.endSession(); } catch { /* Already closed. */ }
-      if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+      nativeVoiceActiveRef.current = false;
+      if (micMeterRafRef.current !== null) window.cancelAnimationFrame(micMeterRafRef.current);
+      micMeterStreamRef.current?.getTracks().forEach(track => track.stop());
+      try { void micMeterContextRef.current?.close(); } catch { /* Audio context may already be closed. */ }
+      try { nativeRecognitionRef.current?.stop(); } catch { /* Recognition may already be stopped. */ }
+      try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
     };
   }, []);
 
@@ -91,173 +90,12 @@ export default function PJAssistant() {
     if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
   };
 
-  const startConversation = async (_textOnly = false) => {
-    if (voiceAgentRef.current || mode === 'connecting') return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError('This browser does not support the voice input required for Live Talk. You can still use text chat.');
-      return;
-    }
-
-    setError('');
-    setMode('connecting');
-    setStatus('Preparing PJ Live Voice…');
-    setIsLiveMode(true);
-    voiceSilenceFollowupSentRef.current = false;
-    voiceAssistantDraftIdRef.current = null;
-
-    const agent = new VoiceAgent({
-      sttProvider: 'webspeech',
-      sttLang: 'en',
-      speed: 1.04,
-      bargeInMinChars: 2,
-      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Speak naturally in concise, warm South African English. Sound like a helpful, knowledgeable business consultant, not a scripted call centre. Keep spoken answers clear and reasonably short. Never claim to be human. The business knowledge and authoritative answers come from the PJ Web Development business assistant service.',
-      sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational, remember the conversation, answer directly, and ask one relevant follow-up when it helps. Do not read out long lists unless asked.',
-      llm: async function* (history: any[], _system: string, signal: AbortSignal) {
-        const lastIndex = history.length - 1;
-        const last = history[lastIndex];
-        const lastContent = typeof last?.content === 'string'
-          ? last.content
-          : Array.isArray(last?.content)
-            ? last.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
-            : '';
-        const trimmedMessage = String(lastContent || '').trim();
-        if (!trimmedMessage) throw new Error('I did not catch that. Please try again.');
-
-        if (trimmedMessage === '[PJ_GREETING]') {
-          yield { text: 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?' };
-          return;
-        }
-
-        const isCheckin = trimmedMessage === '[PJ_SILENCE_CHECKIN]';
-        const message = isCheckin
-          ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question that helps them continue. Do not repeat the opening greeting.'
-          : trimmedMessage;
-        const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
-          role: item.role === 'assistant' ? 'assistant' : 'user',
-          content: typeof item.content === 'string'
-            ? item.content
-            : Array.isArray(item.content)
-              ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
-              : '',
-        })).filter((item: any) => item.content);
-
-        const response = await fetch(PJ_ASSISTANT_API + '/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal,
-          body: JSON.stringify({
-            message,
-            sessionId: chatSessionIdRef.current,
-            history: priorHistory,
-          }),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-        if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) {
-          throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
-        }
-        yield { text: body.reply.trim() };
-      },
-      onEvent: (event: any) => {
-        if (event.type === 'state') {
-          const next = event.state;
-          if (next === 'listening') {
-            setMode('listening');
-            setStatus('Listening to you');
-          } else if (next === 'thinking') {
-            setMode('connecting');
-            setStatus('Thinking…');
-          } else if (next === 'speaking') {
-            setMode('speaking');
-            setStatus('PJ Assistant is speaking');
-          }
-        }
-
-        if (event.type === 'stt') {
-          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-          voiceSilenceTimerRef.current = null;
-          if (event.turnComplete && event.text) {
-            voiceSilenceFollowupSentRef.current = false;
-            addLine('user', event.text);
-          }
-        }
-
-        if (event.type === 'assistant') {
-          const visibleText = String(event.full || event.text || '').trim();
-          if (visibleText) {
-            const existingId = voiceAssistantDraftIdRef.current;
-            if (existingId === null) {
-              const id = nextMessageId.current++;
-              voiceAssistantDraftIdRef.current = id;
-              setMessages(previous => [...previous, { id, role: 'agent', text: visibleText }].slice(-60));
-            } else {
-              setMessages(previous => previous.map(line => line.id === existingId ? { ...line, text: visibleText } : line));
-            }
-          }
-          if (event.final) {
-            voiceAssistantDraftIdRef.current = null;
-            if (!voiceSilenceFollowupSentRef.current && voiceAgentRef.current) {
-              if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-              voiceSilenceTimerRef.current = window.setTimeout(() => {
-                if (!voiceAgentRef.current || voiceSilenceFollowupSentRef.current) return;
-                voiceSilenceFollowupSentRef.current = true;
-                void voiceAgentRef.current.notify('[PJ_SILENCE_CHECKIN]').catch((voiceError: any) => {
-                  setError(voiceError?.message || 'PJ Assistant could not check in. You can keep typing.');
-                });
-              }, 12000);
-            }
-          }
-        }
-
-        if (event.type === 'error') {
-          const message = event.error?.message || String(event.error || 'The voice session encountered a problem.');
-          setError(message);
-          setStatus('Voice connection needs attention');
-        }
-      },
-    });
-
-    voiceAgentRef.current = agent;
-    try {
-      // Must be called synchronously from this tap for mobile browser audio policies.
-      unlockAudio();
-      await agent.start();
-      setMode('listening');
-      setStatus('Listening to you');
-      void agent.notify('[PJ_GREETING]').catch((voiceError: any) => {
-        setError(voiceError?.message || 'PJ Assistant could not start its spoken greeting.');
-      });
-    } catch (voiceError: any) {
-      try { agent.destroy(); } catch { /* Release any partially opened microphone. */ }
-      if (voiceAgentRef.current === agent) voiceAgentRef.current = null;
-      setIsLiveMode(false);
-      setMode('idle');
-      setStatus('Ready when you are');
-      setError(voiceError?.message || 'PJ Live Voice could not start. Check microphone permission and try again.');
-    }
-  };
   const switchToLive = async () => {
-    if (conversationRef.current && !isLiveMode) {
-      const current = conversationRef.current;
-      conversationRef.current = null;
-      try { await current.endSession(); } catch { /* Text session may already have ended. */ }
-      setMode('idle');
-    }
-    await startConversation(false);
+    if (!nativeVoiceActiveRef.current) await startNativeVoice();
   };
 
   const endVoice = async () => {
-    if (nativeVoiceActiveRef.current) stopNativeVoice();
-    if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-    voiceSilenceTimerRef.current = null;
-    const current = voiceAgentRef.current;
-    voiceAgentRef.current = null;
-    try { current?.destroy(); } catch { /* Already ended. */ }
-    endRequestedRef.current = true;
-    setIsLiveMode(false);
-    setMode('idle');
-    setStatus('Ready when you are');
+    stopNativeVoice();
   };
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -267,14 +105,6 @@ export default function PJAssistant() {
     setError('');
     setDraft('');
 
-    // Typed messages in PJ Live use the same voice-agent turn loop and are spoken back.
-    if (voiceAgentRef.current && isLiveMode) {
-      const accepted = voiceAgentRef.current.sendUserText(text);
-      if (!accepted) setError('That message could not be added to the live conversation.');
-      else setStatus('Thinking…');
-      setIsSending(false);
-      return;
-    }
     addLine('user', text);
     const resumeNative = nativeVoiceActiveRef.current;
     if (resumeNative) {
@@ -344,6 +174,49 @@ export default function PJAssistant() {
     setMode('speaking');
     setStatus('PJ Assistant is speaking');
     window.speechSynthesis.speak(utterance);
+  };
+
+  const stopMicMeter = () => {
+    if (micMeterRafRef.current !== null) window.cancelAnimationFrame(micMeterRafRef.current);
+    micMeterRafRef.current = null;
+    micMeterStreamRef.current?.getTracks().forEach(track => track.stop());
+    micMeterStreamRef.current = null;
+    const context = micMeterContextRef.current;
+    micMeterContextRef.current = null;
+    if (context && context.state !== 'closed') void context.close().catch(() => undefined);
+    setMicLevel(0);
+  };
+
+  const startMicMeter = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    micMeterStreamRef.current = stream;
+    const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    const context: AudioContext = new AudioContextConstructor();
+    micMeterContextRef.current = context;
+    await context.resume();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    let frame = 0;
+    const measure = () => {
+      analyser.getByteTimeDomainData(samples);
+      let energy = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const sample = (samples[i] - 128) / 128;
+        energy += sample * sample;
+      }
+      const rms = Math.sqrt(energy / samples.length);
+      const level = Math.min(1, rms * 7);
+      // Limit React updates while keeping the solar orb visibly responsive to real mic input.
+      if (frame++ % 4 === 0) setMicLevel(level);
+      micMeterRafRef.current = window.requestAnimationFrame(measure);
+    };
+    measure();
   };
 
   const startNativeRecognition = () => {
@@ -457,23 +330,38 @@ export default function PJAssistant() {
     }
   };
 
-  const startNativeVoice = () => {
+  const startNativeVoice = async () => {
     if (nativeVoiceActiveRef.current) return;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('This browser does not support continuous voice input. You can still type to PJ Assistant.');
+      setError('Live voice input is not supported in this browser. Please use Chrome on Android or type your message.');
+      return;
+    }
+    setError('');
+    setMode('connecting');
+    setStatus('Requesting microphone access…');
+    setIsLiveMode(true);
+    try {
+      // Explicitly request microphone permission on this tap and measure real input
+      // so the PJ sunset orb reacts to the visitor's voice, not just a fake animation.
+      await startMicMeter();
+    } catch (micError: any) {
+      stopMicMeter();
+      setIsLiveMode(false);
+      setMode('idle');
+      setError(micError?.name === 'NotAllowedError'
+        ? 'Microphone permission is blocked. Allow microphone access for assistant.pjwebdev.online in Chrome site settings, then try again.'
+        : micError?.message || 'PJ Assistant could not access your microphone. Check Chrome microphone permission and try again.');
       return;
     }
     nativeVoiceActiveRef.current = true;
     nativeProcessingRef.current = true;
     nativeFollowupSentRef.current = false;
     setNativeVoiceActive(true);
-    setIsLiveMode(true);
     setError('');
     setMode('speaking');
-    const greeting = "Hi! I’m PJ Assistant, the official AI assistant for PJ Web Development. Welcome! You can ask me about websites, online stores, AI assistants, bookings, custom software and any of our digital services. What would you like to explore?";
-    addLine('agent', greeting);
-    speakNativeReply(greeting, () => {
+    setStatus('Welcome to PJ Web Development');
+    speakNativeReply(WELCOME_MESSAGE, () => {
       nativeProcessingRef.current = false;
       if (nativeVoiceActiveRef.current) startNativeRecognition();
     });
@@ -487,6 +375,7 @@ export default function PJAssistant() {
     nativeSilenceTimerRef.current = null;
     try { nativeRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
     try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
+    stopMicMeter();
     setNativeVoiceListening(false);
     setMode('idle');
     setIsLiveMode(false);
@@ -574,7 +463,7 @@ export default function PJAssistant() {
     <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
       {isLiveMode ? <>
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
-        <SunsetOrb mode={mode} />
+        <SunsetOrb mode={mode} level={micLevel} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           <div ref={transcriptEndRef} />
@@ -595,7 +484,7 @@ export default function PJAssistant() {
         </div>
         {(error || nativeVoiceActive) && <div className="pj-error" role={error ? 'alert' : 'status'}>
           {error && <span>{error}</span>}
-          {(nativeVoiceActive || /ElevenLabs Live Voice is temporarily unavailable/i.test(error)) && <button className="pj-text-toggle" onClick={nativeVoiceActive ? stopNativeVoice : startNativeVoice} style={{ marginLeft: 8 }}><Mic size={14} /> {nativeVoiceListening ? 'Listening…' : nativeVoiceActive ? 'Stop PJ Native Voice' : 'Continue with PJ Native Voice'}</button>}
+          {nativeVoiceActive && <button className="pj-text-toggle" onClick={stopNativeVoice} style={{ marginLeft: 8 }}><MicOff size={14} /> Stop PJ Native Voice</button>}
           {error && <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>}
         </div>}
         <div className="pj-chat-compose">
