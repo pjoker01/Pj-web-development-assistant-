@@ -103,7 +103,7 @@ export default function PJAssistant() {
       sttProvider: 'webspeech', sttLang: 'en-ZA',
       tts: new PiperTTS('en_US-ryan-high'), speed: 1.02, bargeInMinChars: 2,
       keyterms: ['PJ Web Development', 'PJ Assistant', 'Pretoria', 'Sunnyside', 'WhatsApp', 'website', 'ecommerce'],
-      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Your voice is a warm, confident young adult male. Speak in natural, relaxed South African English: friendly, clear, grounded and conversational. Avoid call-centre delivery, robotic phrasing, exaggerated enthusiasm or long monologues. Use contractions and natural pauses. You are an AI assistant; never claim to be human.',
+      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Use a warm, confident, relaxed conversational English delivery. Prefer familiar South African wording where natural, but do not claim or imitate an accent the selected voice model does not provide. Avoid call-centre delivery, robotic phrasing, exaggerated enthusiasm or long monologues. Use contractions and natural pauses. You are an AI assistant; never claim to be human.',
       sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational and helpful. Answer directly, remember the conversation, and ask one relevant follow-up when useful. Keep spoken answers concise unless the visitor asks for detail.',
       llm: async function* (history: any[], _system: string, signal: AbortSignal) {
         const lastIndex = history.length - 1, last = history[lastIndex];
@@ -207,7 +207,7 @@ export default function PJAssistant() {
       const body = await sendAssistantMessage({
         message: text,
         sessionId: chatSessionIdRef.current,
-        history: messages.slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
+        history: messages.filter(line => line.id !== 1).slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
       });
       if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply); setStatus('Ready for your message');
