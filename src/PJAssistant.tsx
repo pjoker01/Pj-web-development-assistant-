@@ -115,7 +115,7 @@ export default function PJAssistant() {
           const visibleText = String(event.full || event.text || '').trim();
           if (visibleText) {
             const existingId = voiceAssistantDraftIdRef.current;
-            if (existingId === null) { const id = nextMessageId.current++; voiceAssistantDraftIdRef.current = id; setMessages(previous => [...previous, { id, role: 'agent', text: visibleText }].slice(-60)); }
+            if (existingId === null) { const id = nextMessageId.current++; voiceAssistantDraftIdRef.current = id; setMessages(previous => [...previous, { id, role: 'agent' as const, text: visibleText }].slice(-60)); }
             else setMessages(previous => previous.map(line => line.id === existingId ? { ...line, text: visibleText } : line));
           }
           if (event.final) {
@@ -280,7 +280,6 @@ export default function PJAssistant() {
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
             {mode !== 'idle' && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
-            {mode === 'idle' && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
           </div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
@@ -298,7 +297,7 @@ export default function PJAssistant() {
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
             <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
             <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} aria-label={isDictating ? 'Stop voice typing' : 'Dictate a message'} title={isDictating ? 'Stop voice typing' : 'Dictate a message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
-            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} disabled={mode === 'connecting'} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
+            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
             <button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button>
           </form>
           <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
