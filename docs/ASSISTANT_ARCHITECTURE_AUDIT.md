@@ -48,6 +48,11 @@ The live deployment also trails the latest source: the deployed commit is `967b0
 - `server.ts` stores leads in a local JSON file. That is not durable storage for a serverless deployment.
 - There is no lockfile in the repository and no automated test script in `package.json`. The `lint` script is only `tsc --noEmit`; build and type-check results need to be treated separately.
 
+### 5. Repository change history
+
+- Two older pull requests remain open: #11 and #12. Both modify the same assistant component and stylesheet, and both were created around the earlier ElevenLabs-era recovery approach. Their descriptions explicitly mention ElevenLabs quota as a blocker. They are based on an older main commit and should not be merged independently into the redesigned implementation.
+- The newer source commits on main moved the assistant toward VoiceLoop, but the production alias still points to the earlier VoiceLoop commit. This creates an additional source-versus-production mismatch.
+
 ## Root-cause conclusion for the reported microphone failure
 
 The latest source and the live deployment are not the same revision. The live alias is on `967b0acc`, while the permission-preflight change is later in `87ab80b0`. More importantly, the current design relies on browser Web Speech for mobile STT, even though its microphone behavior and event model differ from the normal VoiceLoop pipeline. The orb is wired to a level event that Web Speech does not emit. The UI also has no single authoritative state machine for start, permission, listening, error, disconnect, and stop.
