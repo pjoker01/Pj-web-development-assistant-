@@ -87,6 +87,11 @@ export default function PJAssistant() {
 
   const switchToLive = async () => {
     if (voiceAgentRef.current || mode === 'connecting') return;
+    const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!BrowserSpeechRecognition) {
+      setError('Live voice input needs Chrome on Android or a supported desktop browser. Please use Chrome, allow microphone access, or continue with text chat.');
+      return;
+    }
     setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…'); setIsLiveMode(true); setVoiceActive(true);
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
     const agent = new VoiceAgent({
