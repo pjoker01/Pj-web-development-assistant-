@@ -68,6 +68,7 @@ export type PJVoiceSession = ReturnType<typeof createPJVoiceSession>;
 export function createPJVoiceSession(
   options: PJVoiceAgentOptions,
   agentFactory: VoiceAgentFactory = createPJVoiceAgent,
+  unlockAudioFn: () => void = unlockAudio,
 ) {
   const agent = agentFactory(options);
   let started = false;
@@ -84,7 +85,7 @@ export function createPJVoiceSession(
     async start() {
       if (started || destroyed) return;
       // Must execute synchronously in the user's tap before the first await.
-      unlockAudio();
+      unlockAudioFn();
       started = true;
       try {
         await agent.start();
