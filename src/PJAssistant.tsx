@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { unlockAudio, prewarmVoice } from '@todoforai/voiceloop';
-import { createPJVoiceAgent } from './assistant/voice/pj-voice-agent';
+import { prewarmVoice } from '@todoforai/voiceloop';
+import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
@@ -97,7 +97,7 @@ export default function PJAssistant() {
     }
     setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
-    const agent = createPJVoiceAgent({
+    const agent = createPJVoiceSession({
       getSessionId: () => chatSessionIdRef.current,
       setSessionId: sessionId => { chatSessionIdRef.current = sessionId; },
       onEvent: (event: any) => {
@@ -146,8 +146,7 @@ export default function PJAssistant() {
     });
     voiceAgentRef.current = agent;
     try {
-      // VoiceLoop is the single microphone owner. Start directly from this user gesture.
-      unlockAudio();
+      // The session controller starts VoiceLoop directly from this user gesture.
       await agent.start();
       setMode('listening'); setStatus('Listening to you');
       void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
