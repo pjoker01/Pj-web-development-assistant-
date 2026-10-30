@@ -117,3 +117,25 @@ Before any production alias is moved:
 - Keep the existing PJ Chat Platform project, Supabase data, client ID, public knowledge and business configuration intact.
 - Do not touch PJ Hub or other PJ repositories.
 - Do not expose provider secrets in the browser.
+
+## Implementation progress on `redesign/assistant-architecture`
+
+The following changes have been committed to the redesign branch only (not deployed):
+
+- Added `src/assistant/api/assistant-api.ts` as the single typed browser client for the existing public PJ Chat Platform chat, availability, and consultation-request endpoints.
+- Routed both typed chat and VoiceLoop's custom LLM adapter through the shared chat client. Text history excludes the local-only welcome line so it does not cause the platform's browser-history reconciliation to reset the session on every typed turn.
+- Removed the standalone `/api/leads` call from the active assistant form. The form now selects a real available consultation time and submits the documented `POST /api/pj-assistant/booking-requests` contract. The UI clearly says the request is pending and not confirmed.
+- Removed the extra temporary `getUserMedia()` capture. VoiceLoop's documented `agent.start()` is now the only Live Talk microphone acquisition path. Dictation is stopped before Live Talk starts.
+- Consolidated duplicate live-mode booleans into the existing `mode` state and removed the fake microphone-level ring update. The selected Web Speech provider does not emit VoiceLoop's pipeline `level` events, so the UI must not imply that it has a real amplitude reading.
+- A terminal VoiceLoop error now destroys the failed agent, clears the silence timer, and returns the visitor to text chat.
+- Added Node test-runner coverage for the chat, availability, and consultation-request API contracts, plus an `npm test` script.
+
+### Remaining work before release
+
+1. Run `npm test`, `npm run lint`, and `npm run build` in a real checkout with the repository's installed dependencies. These checks have not yet been executed in this environment.
+2. Extract VoiceLoop construction and speech-profile configuration into a dedicated voice adapter module; keep React responsible for rendering and state transitions only.
+3. Add lifecycle tests for permission denial, unsupported browsers, start/stop repetition, error teardown, and text-to-voice session continuity.
+4. Decide whether the legacy `/pj-control` and non-assistant routes remain supported. The legacy Express/Gemini and serverless bridge paths should be retired only after route ownership is agreed.
+5. Perform the physical Android Chrome microphone test and confirm the production alias points to the exact tested commit. Do not deploy before these gates pass.
+
+**Current status:** architecture refactor in progress; no production deployment or main-branch change has been made. GitHub Actions did not report any workflow runs for the latest branch commit, and the local checkout/build could not be executed in this environment.
