@@ -224,3 +224,7 @@
 }
 @keyframes coronaTurn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sun-corona { animation: none !important; } }
+
+/* Clean messenger layout after the five-second brand splash. */
+.pj-chat-view{gap:10px;padding-top:10px}
+.pj-chat-window-clean{min-height:calc(100svh - 250px);max-height:calc(100svh - 250px);padding-top:10px}
