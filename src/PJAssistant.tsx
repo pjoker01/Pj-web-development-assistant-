@@ -4,8 +4,8 @@ import { PiperTTS, VoiceAgent, unlockAudio, prewarmVoice } from '@todoforai/voic
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
+import { getConsultationAvailability, sendAssistantMessage } from './assistant/api/assistant-api';
 
-const PJ_ASSISTANT_API = 'https://chat.pjwebdev.online/api/pj-assistant';
 type Slot = { start: string; end: string; available: boolean };
 type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
@@ -63,9 +63,8 @@ export default function PJAssistant() {
   useEffect(() => {
     let cancelled = false;
     setSlots([]); setSelectedSlot(''); setBookingError('');
-    fetch(PJ_ASSISTANT_API + '/booking-availability?date=' + encodeURIComponent(date))
-      .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load availability.'); return body; })
-      .then(body => { if (!cancelled) setSlots(Array.isArray(body.slots) ? body.slots.filter((slot: Slot) => slot.available) : []); })
+    getConsultationAvailability(date)
+      .then(availableSlots => { if (!cancelled) setSlots(availableSlots); })
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
     return () => { cancelled = true; };
   }, [date]);
@@ -87,6 +86,12 @@ export default function PJAssistant() {
 
   const switchToLive = async () => {
     if (voiceAgentRef.current || mode === 'connecting') return;
+    // Dictation and Live Talk must never compete for the same microphone.
+    if (isDictating) {
+      try { speechRecognitionRef.current?.stop(); } catch { /* Recognition may already have ended. */ }
+      speechRecognitionRef.current = null;
+      setIsDictating(false);
+    }
     const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!BrowserSpeechRecognition) {
       setError('Live voice input needs Chrome on Android or a supported desktop browser. Please use Chrome, allow microphone access, or continue with text chat.');
@@ -112,10 +117,8 @@ export default function PJAssistant() {
           role: item.role === 'assistant' ? 'assistant' : 'user',
           content: typeof item.content === 'string' ? item.content : Array.isArray(item.content) ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ') : '',
         })).filter((item: any) => item.content);
-        const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ message, sessionId: chatSessionIdRef.current, history: priorHistory }) });
-        const body = await response.json().catch(() => ({}));
-        if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-        if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+        const body = await sendAssistantMessage({ message, sessionId: chatSessionIdRef.current, history: priorHistory, signal });
+        if (body.sessionId) chatSessionIdRef.current = body.sessionId;
         yield { text: body.reply.trim() };
       },
       onEvent: (event: any) => {
@@ -155,14 +158,8 @@ export default function PJAssistant() {
     });
     voiceAgentRef.current = agent;
     try {
-      // Request permission explicitly from this tap, then release the temporary
-      // stream before VoiceLoop opens its own Web Speech microphone.
+      // VoiceLoop is the single microphone owner. Start directly from this user gesture.
       unlockAudio();
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('This browser cannot request microphone access. Please open assistant.pjwebdev.online in Chrome and allow Microphone in site settings.');
-      }
-      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      permissionStream.getTracks().forEach(track => track.stop());
       await agent.start();
       setMode('listening'); setStatus('Listening to you');
       void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
@@ -194,13 +191,12 @@ export default function PJAssistant() {
     }
     addLine('user', text);
     try {
-      const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        message: text, sessionId: chatSessionIdRef.current,
-        history: messages.slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' : 'user', content: line.text })),
-      }) });
-      const body = await response.json().catch(() => ({}));
-      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      const body = await sendAssistantMessage({
+        message: text,
+        sessionId: chatSessionIdRef.current,
+        history: messages.slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
+      });
+      if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply); setStatus('Ready for your message');
     } catch (err: any) { setError(err?.message || 'That message could not be sent. Please try again.'); }
     finally { setIsSending(false); }
