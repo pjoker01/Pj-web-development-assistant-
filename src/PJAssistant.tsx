@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { PiperTTS, VoiceAgent, unlockAudio, prewarmVoice } from '@todoforai/voiceloop';
+import { prewarmVoice } from '@todoforai/voiceloop';
+import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
+import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest } from './assistant/api/assistant-api';
 
-const PJ_ASSISTANT_API = 'https://chat.pjwebdev.online/api/pj-assistant';
 type Slot = { start: string; end: string; available: boolean };
 type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
 const WELCOME_MESSAGE = "Hi, welcome to PJ Web Development. I'm PJ Assistant. What can I help you with today?";
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
 
-function SunsetOrb({ mode, level }: { mode: VoiceMode; level: number }) {
+function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
-    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-mic-meter" style={{ opacity: 0.12 + level * 0.78, transform: `scale(${1 + level * 0.22})` }} /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
+    <div className="orb-aura aura-one" /><div className="orb-aura aura-two" /><div className="orb-ring ring-one" /><div className="orb-ring ring-two" />
     <div className="sun-orb"><div className="sun-corona" /><div className="sun-gloss" /><div className="sun-plasma plasma-one" /><div className="sun-plasma plasma-two" /><div className="sun-limb" /></div>
     <div className="mist mist-back" /><div className="mist mist-front" /><div className="orb-spark spark-one" /><div className="orb-spark spark-two" /><div className="orb-spark spark-three" />
   </div>;
@@ -29,11 +30,9 @@ export default function PJAssistant() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [intro, setIntro] = useState(true);
-  const [isLiveMode, setIsLiveMode] = useState(false);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([{ id: 1, role: 'agent', text: WELCOME_MESSAGE }]);
-  const [micLevel, setMicLevel] = useState(0);
   const chatSessionIdRef = useRef('pjassistant-' + (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)));
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -41,7 +40,6 @@ export default function PJAssistant() {
   const [isDictating, setIsDictating] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
   const [error, setError] = useState('');
-  const [voiceActive, setVoiceActive] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -63,9 +61,8 @@ export default function PJAssistant() {
   useEffect(() => {
     let cancelled = false;
     setSlots([]); setSelectedSlot(''); setBookingError('');
-    fetch(PJ_ASSISTANT_API + '/booking-availability?date=' + encodeURIComponent(date))
-      .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load availability.'); return body; })
-      .then(body => { if (!cancelled) setSlots(Array.isArray(body.slots) ? body.slots.filter((slot: Slot) => slot.available) : []); })
+    getConsultationAvailability(date)
+      .then(availableSlots => { if (!cancelled) setSlots(availableSlots); })
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
     return () => { cancelled = true; };
   }, [date]);
@@ -87,44 +84,28 @@ export default function PJAssistant() {
 
   const switchToLive = async () => {
     if (voiceAgentRef.current || mode === 'connecting') return;
+    // Dictation and Live Talk must never compete for the same microphone.
+    if (isDictating) {
+      try { speechRecognitionRef.current?.stop(); } catch { /* Recognition may already have ended. */ }
+      speechRecognitionRef.current = null;
+      setIsDictating(false);
+    }
     const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!BrowserSpeechRecognition) {
       setError('Live voice input needs Chrome on Android or a supported desktop browser. Please use Chrome, allow microphone access, or continue with text chat.');
       return;
     }
-    setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…'); setIsLiveMode(true); setVoiceActive(true);
+    setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
-    const agent = new VoiceAgent({
-      sttProvider: 'webspeech', sttLang: 'en-ZA',
-      tts: new PiperTTS('en_US-ryan-high'), speed: 1.02, bargeInMinChars: 2,
-      keyterms: ['PJ Web Development', 'PJ Assistant', 'Pretoria', 'Sunnyside', 'WhatsApp', 'website', 'ecommerce'],
-      persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Your voice is a warm, confident young adult male. Speak in natural, relaxed South African English: friendly, clear, grounded and conversational. Avoid call-centre delivery, robotic phrasing, exaggerated enthusiasm or long monologues. Use contractions and natural pauses. You are an AI assistant; never claim to be human.',
-      sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational and helpful. Answer directly, remember the conversation, and ask one relevant follow-up when useful. Keep spoken answers concise unless the visitor asks for detail.',
-      llm: async function* (history: any[], _system: string, signal: AbortSignal) {
-        const lastIndex = history.length - 1, last = history[lastIndex];
-        const lastContent = typeof last?.content === 'string' ? last.content : Array.isArray(last?.content) ? last.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ') : '';
-        const incoming = String(lastContent || '').trim();
-        if (!incoming) throw new Error('I did not catch that. Please try again.');
-        if (incoming === '[PJ_GREETING]') { yield { text: 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?' }; return; }
-        const isCheckin = incoming === '[PJ_SILENCE_CHECKIN]';
-        const message = isCheckin ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question. Do not repeat the opening greeting.' : incoming;
-        const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
-          role: item.role === 'assistant' ? 'assistant' : 'user',
-          content: typeof item.content === 'string' ? item.content : Array.isArray(item.content) ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ') : '',
-        })).filter((item: any) => item.content);
-        const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ message, sessionId: chatSessionIdRef.current, history: priorHistory }) });
-        const body = await response.json().catch(() => ({}));
-        if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-        if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
-        yield { text: body.reply.trim() };
-      },
+    const agent = createPJVoiceSession({
+      getSessionId: () => chatSessionIdRef.current,
+      setSessionId: sessionId => { chatSessionIdRef.current = sessionId; },
       onEvent: (event: any) => {
         if (event.type === 'state') {
           if (event.state === 'listening') { setMode('listening'); setStatus('Listening to you'); }
           else if (event.state === 'thinking') { setMode('connecting'); setStatus('Thinking…'); }
           else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
-        if (event.type === 'level' && typeof event.level === 'number') setMicLevel(previous => Math.max(event.level, previous * 0.72));
         if (event.type === 'stt' && event.turnComplete && event.text) {
           voiceSilenceFollowupSentRef.current = false; addLine('user', event.text);
           if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
@@ -134,7 +115,7 @@ export default function PJAssistant() {
           const visibleText = String(event.full || event.text || '').trim();
           if (visibleText) {
             const existingId = voiceAssistantDraftIdRef.current;
-            if (existingId === null) { const id = nextMessageId.current++; voiceAssistantDraftIdRef.current = id; setMessages(previous => [...previous, { id, role: 'agent', text: visibleText }].slice(-60)); }
+            if (existingId === null) { const id = nextMessageId.current++; voiceAssistantDraftIdRef.current = id; setMessages(previous => [...previous, { id, role: 'agent' as const, text: visibleText }].slice(-60)); }
             else setMessages(previous => previous.map(line => line.id === existingId ? { ...line, text: visibleText } : line));
           }
           if (event.final) {
@@ -149,27 +130,31 @@ export default function PJAssistant() {
         }
         if (event.type === 'error') {
           const detail = event.error?.message || String(event.error || 'The voice session encountered a problem.');
-          setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, set Microphone to Allow, then tap Live Talk again.' : detail);
+          setError(/not.?allowed|permission|microphone/i.test(detail)
+            ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, set Microphone to Allow, then tap Live Talk again.'
+            : detail);
+          // A VoiceLoop error is terminal for this session: release it and return to text chat.
+          const failedAgent = voiceAgentRef.current;
+          voiceAgentRef.current = null;
+          try { failedAgent?.destroy(); } catch { /* The library may already have torn down. */ }
+          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+          voiceSilenceTimerRef.current = null;
+          setMode('idle');
+          setStatus('Voice stopped — you can continue by typing');
         }
       },
     });
     voiceAgentRef.current = agent;
     try {
-      // Request permission explicitly from this tap, then release the temporary
-      // stream before VoiceLoop opens its own Web Speech microphone.
-      unlockAudio();
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('This browser cannot request microphone access. Please open assistant.pjwebdev.online in Chrome and allow Microphone in site settings.');
-      }
-      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      permissionStream.getTracks().forEach(track => track.stop());
+      // The session controller starts VoiceLoop directly from this user gesture.
       await agent.start();
+      if (voiceAgentRef.current !== agent) return;
       setMode('listening'); setStatus('Listening to you');
       void agent.notify('[PJ_GREETING]').catch((err: any) => setError(err?.message || 'PJ Assistant could not start its spoken greeting.'));
     } catch (err: any) {
       try { agent.destroy(); } catch { /* Release partial session. */ }
       if (voiceAgentRef.current === agent) voiceAgentRef.current = null;
-      setVoiceActive(false); setIsLiveMode(false); setMode('idle'); setStatus('Ready when you are');
+      setMode('idle'); setStatus('Ready when you are');
       const detail = err?.message || 'PJ Live Voice could not start.';
       setError(/not.?allowed|permission|microphone/i.test(detail) ? 'Chrome has not allowed microphone access. Tap the site icon beside the address, open Permissions, set Microphone to Allow, then reload and try again.' : detail + ' Please check microphone permission and try again.');
     }
@@ -180,13 +165,13 @@ export default function PJAssistant() {
     voiceSilenceTimerRef.current = null;
     const current = voiceAgentRef.current; voiceAgentRef.current = null;
     try { current?.destroy(); } catch { /* Already ended. */ }
-    setVoiceActive(false); setMicLevel(0); setIsLiveMode(false); setMode('idle'); setStatus('Ready for your message');
+    setMode('idle'); setStatus('Ready for your message');
   };
 
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const text = draft.trim(); if (!text || isSending) return;
     setIsSending(true); setError(''); setDraft('');
-    if (voiceAgentRef.current && isLiveMode) {
+    if (voiceAgentRef.current && mode !== 'idle') {
       const accepted = voiceAgentRef.current.sendUserText(text);
       if (!accepted) setError('That message could not be added to the live conversation.');
       else setStatus('Thinking…');
@@ -194,13 +179,12 @@ export default function PJAssistant() {
     }
     addLine('user', text);
     try {
-      const response = await fetch(PJ_ASSISTANT_API + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        message: text, sessionId: chatSessionIdRef.current,
-        history: messages.slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' : 'user', content: line.text })),
-      }) });
-      const body = await response.json().catch(() => ({}));
-      if (typeof body.sessionId === 'string' && body.sessionId) chatSessionIdRef.current = body.sessionId;
-      if (!response.ok || typeof body.reply !== 'string' || !body.reply.trim()) throw new Error(body.error || 'PJ Assistant could not answer just now. Please try again.');
+      const body = await sendAssistantMessage({
+        message: text,
+        sessionId: chatSessionIdRef.current,
+        history: messages.filter(line => line.id !== 1).slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
+      });
+      if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply); setStatus('Ready for your message');
     } catch (err: any) { setError(err?.message || 'That message could not be sent. Please try again.'); }
     finally { setIsSending(false); }
@@ -240,6 +224,7 @@ export default function PJAssistant() {
       };
       recognition.onend = () => setIsDictating(false);
       recognition.start();
+      setIsDictating(true);
     } catch {
       setIsDictating(false);
       setError('Microphone typing could not start. Check browser microphone permission.');
@@ -249,26 +234,24 @@ export default function PJAssistant() {
   const submitBooking = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBookingLoading(true); setBookingError(''); setBookingMessage('');
     try {
-      const features = [businessType, projectPackage ? 'Budget preference: ' + projectPackage : 'Budget: not sure yet'];
-      const response = await fetch('/api/leads', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_name: customerName.trim(),
-          business_name: businessName.trim(),
-          business_type: businessType,
-          location: projectLocation.trim(),
-          customer_whatsapp: customerContact.trim(),
-          website_goal: projectGoal.trim(),
-          requested_features: features,
-          recommended_package: projectPackage || 'Standard',
-          additional_requirements: projectNotes.trim() || 'No extra details supplied',
-        })
+      if (!selectedSlot) throw new Error('Please choose an available consultation time.');
+      const notes = [
+        'Business / project: ' + businessName.trim(),
+        'Project type: ' + businessType,
+        'Location: ' + projectLocation.trim(),
+        'Budget preference: ' + (projectPackage || 'Not sure yet'),
+        'Project goal: ' + projectGoal.trim(),
+        'Additional details: ' + (projectNotes.trim() || 'None supplied'),
+      ].join('\\n');
+      const result = await submitConsultationRequest({
+        customerName,
+        customerContact,
+        requestedStart: selectedSlot,
+        notes,
       });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || body.success !== true) throw new Error(body.error || 'Your project enquiry could not be saved. Please try again.');
-      setBookingMessage('Your project enquiry has been sent. PJ will review it and follow up.');
-      setCustomerName(''); setBusinessName(''); setBusinessType(''); setProjectLocation(''); setProjectGoal(''); setCustomerContact(''); setProjectNotes(''); setProjectPackage('');
-    } catch (e: any) { setBookingError(e?.message || 'Unable to send your project enquiry. Please try again.'); }
+      setBookingMessage(result.message + ' This is a request, not a confirmed appointment.');
+      setCustomerName(''); setBusinessName(''); setBusinessType(''); setProjectLocation(''); setProjectGoal(''); setCustomerContact(''); setProjectNotes(''); setProjectPackage(''); setSelectedSlot('');
+    } catch (e: any) { setBookingError(e?.message || 'Unable to send your consultation request. Please try again.'); }
     finally { setBookingLoading(false); }
   };
 
@@ -284,19 +267,19 @@ export default function PJAssistant() {
       <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
-    <section className={isLiveMode ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
-      {isLiveMode ? <>
+    <section className={mode !== 'idle' ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
+      {mode !== 'idle' ? <>
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
-        <SunsetOrb mode={mode} level={micLevel} />
+        <SunsetOrb mode={mode} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
           {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           <div ref={transcriptEndRef} />
         </div>
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
+        {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            {voiceActive && <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>}
-            {!voiceActive && <button className="pj-talk-button" onClick={endVoice}><PhoneOff size={16} /> End live talk</button>}
+            <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>
           </div>
           {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
@@ -314,7 +297,7 @@ export default function PJAssistant() {
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
             <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
             <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} aria-label={isDictating ? 'Stop voice typing' : 'Dictate a message'} title={isDictating ? 'Stop voice typing' : 'Dictate a message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
-            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} disabled={mode === 'connecting'} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
+            <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
             <button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button>
           </form>
           <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
@@ -330,15 +313,17 @@ export default function PJAssistant() {
           <label>Business or project name<input value={businessName} onChange={e => setBusinessName(e.target.value)} minLength={2} maxLength={160} required placeholder="Business name or project title" /></label>
           <label>Project type<select value={businessType} onChange={e => setBusinessType(e.target.value)} required><option value="">Choose a project</option><option>Business website</option><option>Online store</option><option>AI chatbot / assistant</option><option>Web app or dashboard</option><option>Website redesign</option><option>Other digital project</option></select></label>
           <label>Your location<input value={projectLocation} onChange={e => setProjectLocation(e.target.value)} minLength={2} maxLength={120} required placeholder="City or area" /></label>
+          <label>Consultation date<input type="date" value={date} min={localDate()} onChange={e => { setDate(e.target.value); setSelectedSlot(''); }} required /></label>
+          <label>Available consultation time<select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required disabled={slots.length === 0}><option value="">{slots.length ? 'Choose an available time' : 'No available times for this date'}</option>{slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Johannesburg' })}</option>)}</select></label>
           <label>Phone or WhatsApp<input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="Your phone or WhatsApp number" /></label>
-          <label>Budget range<select value={projectPackage} onChange={e => setProjectPackage(e.target.value)} required><option value="">Not sure yet</option><option>Starter</option><option>Standard</option><option>Premium</option></select></label>
+          <label>Budget range<select value={projectPackage} onChange={e => setProjectPackage(e.target.value)} required><option value="Not sure yet">Not sure yet</option><option>Starter</option><option>Standard</option><option>Premium</option></select></label>
           <label style={{ gridColumn: '1 / -1' }}>What do you want to achieve?<textarea value={projectGoal} onChange={e => setProjectGoal(e.target.value)} minLength={10} maxLength={1200} rows={3} required placeholder="Tell me what you want built and what it should help you do…" /></label>
           <label style={{ gridColumn: '1 / -1' }}>Extra details (optional)<textarea value={projectNotes} onChange={e => setProjectNotes(e.target.value)} maxLength={1200} rows={2} placeholder="Features, deadline, existing website, or anything else useful…" /></label>
           {bookingError && <p role="alert" style={{ gridColumn: '1 / -1', color: '#ffb3a4', fontSize: 12 }}>{bookingError}</p>}
           {bookingMessage && <p role="status" style={{ gridColumn: '1 / -1', color: '#a7f3d0', fontSize: 12 }}>{bookingMessage}</p>}
-          <button className="pj-booking-submit" type="submit" disabled={bookingLoading}>{bookingLoading ? 'Sending project…' : 'Send Project Enquiry'}</button>
+          <button className="pj-booking-submit" type="submit" disabled={bookingLoading || !selectedSlot}>{bookingLoading ? 'Sending request…' : 'Request Consultation'}</button>
         </form>
-        <p style={{ color: '#8c7d7c', fontSize: 10, lineHeight: 1.6, marginBottom: 0 }}>Your details are used to respond to this enquiry. Please don't include passwords or payment details.</p>
+        <p style={{ color: '#8c7d7c', fontSize: 10, lineHeight: 1.6, marginBottom: 0 }}>This sends a consultation request for PJ to review. It is not confirmed until PJ contacts you. Please don't include passwords or payment details.</p>
       </section>
     </div>}
   </main>;

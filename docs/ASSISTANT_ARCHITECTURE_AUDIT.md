@@ -1,0 +1,158 @@
+# PJ Assistant — Repository Audit & Architecture Redesign
+
+**Audit date:** 2026-10-30  
+**Repository:** `pjoker01/Pj-web-development-assistant-`  
+**Audited branch baseline:** `main` at `87ab80b01ac4081aa98bfa4de21b2b6aedceef18`  
+**Production deployment observed:** `dpl_E4o7mjcELZdS7EtwqT17Gbf8FMjR`, READY, alias `assistant.pjwebdev.online`, built from `967b0acc59f7b306a2d5b67a09ad2799ff9adb6a`.
+
+## Executive finding
+
+The assistant is not suffering from one isolated microphone defect. The repository contains multiple overlapping generations of the product: a legacy Express/Gemini application, a legacy chat UI, a Vercel serverless bridge, and the newer React/VoiceLoop assistant. They do not share one API contract or one lifecycle. This is the main source of recurring regressions.
+
+The live deployment also trails the latest source: the deployed commit is `967b0acc`; the current source includes later microphone-permission and lifecycle changes through `87ab80b0`. A READY deployment does not prove that the latest source is live or that a physical Android microphone works.
+
+## Confirmed findings
+
+### 1. Voice capture and lifecycle
+
+- `src/PJAssistant.tsx` owns UI, chat requests, VoiceLoop construction, microphone setup, TTS configuration, transcripts, silence follow-ups, booking UI, and dictation in one large component.
+- State is represented by several overlapping values: `mode`, `isLiveMode`, `voiceActive`, `isDictating`, `isSending`, and `error`. These can become inconsistent after a partial start, a recognition error, a disconnect, or a user closing the screen.
+- The Live Talk path uses VoiceLoop with `sttProvider: 'webspeech'`. VoiceLoop's upstream documentation says Web Speech is browser-managed, bypasses its normal VAD/mic-level pipeline, and does not emit `level` events. The current UI nevertheless expects `event.level` to drive the orb meter. Therefore the microphone ring cannot show actual microphone amplitude in this configuration.
+- VoiceLoop documentation recommends cloud STT rather than Web Speech for iOS continuous voice sessions. Browser support and behavior vary; a browser constructor check alone is not a complete microphone health check.
+- The separate dictation recognizer (`toggleDictation`) is another microphone owner. Live Talk does not first guarantee that dictation has stopped. Two recognizers can contend for the same device.
+- The latest source added a temporary `getUserMedia()` permission request, immediately stops that stream, and then starts VoiceLoop, which opens its own capture path. That is two capture operations in one startup sequence and should be replaced by a single documented mic owner. The production deployment inspected predates this latest preflight.
+- Error events are not consistently promoted into a terminal voice-session state. The component can retain a Live UI while the agent has failed or disconnected.
+- The selected local Piper voice is cost-free, but Piper is a local neural TTS engine, not a human-grade studio voice. Persona text cannot change the acoustic characteristics or accent of a voice model.
+
+### 2. API and conversation contracts
+
+- The current assistant correctly intends to use the existing PJ Chat Platform public assistant route: `https://chat.pjwebdev.online/api/pj-assistant/chat`. The platform repo contains that public route in `server/pjAssistantBookingRoutes.ts`; it is distinct from the admin-only `/api/pj-assistant/chat` route in the platform's main server.
+- The standalone repository also contains `api/chat.ts`, a separate Vercel function that proxies to `/api/chat/:clientId`. The current `PJAssistant.tsx` does not use it. This leaves two competing chat bridges with different request contracts.
+- The old `server.ts` also defines a third `/api/chat` implementation using a Gemini key and a different history format. It is not the current public assistant brain.
+- Current text and VoiceLoop requests both call the platform's public assistant route, which is the correct direction, but that contract is embedded directly inside the React component instead of a single typed API client.
+- The public platform route accepts history items as `{ role, content }`, normalizes them, persists the conversation, and returns a `sessionId`. This needs a shared typed contract and tests so text and voice cannot drift.
+
+### 3. Project enquiry / booking
+
+- The current component fetches availability from `/api/pj-assistant/booking-availability` on the platform, but the project form submits to the standalone origin's `/api/leads` with a different payload.
+- The platform already exposes `POST /api/pj-assistant/booking-requests`, which requires `customerName`, `customerContact`, and a valid `requestedStart`. The current form does not collect or submit a requested appointment time and does not call this endpoint.
+- The standalone repository's old `server.ts` implements `POST /api/leads` and a local/Notion lead flow, but the current Vercel frontend deployment is a Vite project with a SPA rewrite. There is no `api/leads.ts` Vercel function in this repository. The old Express route is not automatically available just because it exists in `server.ts`.
+- The form currently fetches availability data into `slots` but does not render or use those slots to select a time. The `selectedSlot` state is not connected to the form submission.
+
+### 4. Hosting and legacy application mismatch
+
+- Vercel reports this project as framework `vite`; `vercel.json` contains only a catch-all rewrite to `index.html`.
+- The standalone repo has a large Express server with Gemini chat, Notion lead capture, admin login, local JSON lead storage, and static serving. The production Vercel build is not configured to run that Express server as a persistent application.
+- `src/main.tsx` routes `/` and `/assistant` to the new assistant, `/pj-control` to the old admin UI, and other paths to the legacy `App`.
+- `src/App.tsx` uses the old `/api/chat` and `/api/leads` contracts. `src/Admin.tsx` calls `/api/admin/*`. Those contracts are implemented in `server.ts`, not as matching Vercel function files. This makes the legacy paths inconsistent with the current hosting model.
+- `server.ts` stores leads in a local JSON file. That is not durable storage for a serverless deployment.
+- There is no lockfile in the repository and no automated test script in `package.json`. The `lint` script is only `tsc --noEmit`; build and type-check results need to be treated separately.
+
+### 5. Repository change history
+
+- Two older pull requests remain open: #11 and #12. Both modify the same assistant component and stylesheet, and both were created around the earlier ElevenLabs-era recovery approach. Their descriptions explicitly mention ElevenLabs quota as a blocker. They are based on an older main commit and should not be merged independently into the redesigned implementation.
+- The newer source commits on main moved the assistant toward VoiceLoop, but the production alias still points to the earlier VoiceLoop commit. This creates an additional source-versus-production mismatch.
+
+## Root-cause conclusion for the reported microphone failure
+
+The latest source and the live deployment are not the same revision. The live alias is on `967b0acc`, while the permission-preflight change is later in `87ab80b0`. More importantly, the current design relies on browser Web Speech for mobile STT, even though its microphone behavior and event model differ from the normal VoiceLoop pipeline. The orb is wired to a level event that Web Speech does not emit. The UI also has no single authoritative state machine for start, permission, listening, error, disconnect, and stop.
+
+This is an architecture issue, not a problem that should be solved by adding another isolated microphone patch.
+
+## Target redesign
+
+### A. One conversation core
+
+Create a small, explicit assistant core with these responsibilities:
+
+1. **Conversation controller** — owns one conversation ID, transcript, pending request, and one lifecycle state.
+2. **Assistant API client** — the only place that calls the existing platform public assistant endpoint. It validates response shape, handles timeouts/errors, and is used by both typed and spoken messages.
+3. **Voice session adapter** — owns exactly one VoiceLoop instance and one microphone lifecycle. It exposes start, stop, send-text, mute, and event subscriptions; the React UI never constructs VoiceLoop directly.
+4. **Speech profile** — isolates STT language/provider, TTS engine/voice ID, speed, and persona. The UI must not pretend that a local voice has a South African accent unless the model actually has one.
+5. **Presentation layer** — orb, transcript, composer, permission prompt, status and error views. It renders state; it does not own audio capture or API transport.
+
+### B. One finite-state machine
+
+Use one authoritative state, with explicit transitions:
+
+`idle → requesting-permission → listening → thinking → speaking → listening`
+
+Terminal and recovery states:
+
+`unsupported`, `permission-denied`, `network-error`, `voice-error`, `stopping`.
+
+No separate booleans should independently decide whether the orb is open, the mic is active, or the agent exists. A disconnect or error must stop/release the session and return to a safe state.
+
+### C. One microphone owner
+
+- Remove the second temporary mic stream and the independent dictation recognizer from the Live Talk path.
+- Start VoiceLoop directly from the user's Live Talk gesture so its documented `agent.start()` owns the capture request.
+- Show a clear permission explainer and a retry action if the browser denies access.
+- Detect unsupported STT before starting and provide a clear text-only fallback.
+- Do not promise a true amplitude meter for Web Speech. Either use state/interim-transcript animation, or select a supported STT provider that exposes VoiceLoop's VAD/level pipeline after credentials and costs are approved.
+
+### D. One backend contract
+
+- Keep the public PJ Assistant brain in the existing Chat Platform; do not move the assistant to a separate Gemini prompt or add ElevenLabs as a requirement.
+- Use the public `/api/pj-assistant/chat` route for both typed and spoken turns.
+- Preserve session IDs and normalized `{ role, content }` history.
+- Connect the project enquiry UI to a real supported platform endpoint. For an appointment request, collect an actual requested date/time and call `/api/pj-assistant/booking-requests`; otherwise call a deliberately designed lead-capture endpoint. Do not mix the two concepts.
+- Remove or quarantine unused competing `/api/chat`, Gemini and local-file lead paths only after confirming whether the legacy `App` and admin pages are still required.
+
+### E. Test and release gates
+
+Before any production alias is moved:
+
+1. Type-chat contract test against the platform public route.
+2. VoiceLoop adapter tests with mocked permission grant, denial, unsupported browser, disconnect, interruption, and repeated start/stop.
+3. Conversation history test proving typed and voice turns share the same session.
+4. Booking/lead test proving the UI calls the matching endpoint and payload.
+5. Production smoke test of the deployed JS commit and API routes.
+6. Physical Android Chrome test: first permission prompt, allow, speak, hear response, interrupt, stop, retry after denial.
+7. Confirm the production alias points to the exact tested commit.
+
+## Scope / safety
+
+- This branch is a design and refactor workspace. Do not change the production alias from this branch until the above gates pass.
+- Keep the existing PJ Chat Platform project, Supabase data, client ID, public knowledge and business configuration intact.
+- Do not touch PJ Hub or other PJ repositories.
+- Do not expose provider secrets in the browser.
+
+## Implementation progress on `redesign/assistant-architecture`
+
+The following changes have been committed to the redesign branch only (not deployed):
+
+- Added `src/assistant/api/assistant-api.ts` as the single typed browser client for the existing public PJ Chat Platform chat, availability, and consultation-request endpoints.
+- Routed both typed chat and VoiceLoop's custom LLM adapter through the shared chat client. Text history excludes the local-only welcome line so it does not cause the platform's browser-history reconciliation to reset the session on every typed turn.
+- Removed the standalone `/api/leads` call from the active assistant form. The form now selects a real available consultation time and submits the documented `POST /api/pj-assistant/booking-requests` contract. The UI clearly says the request is pending and not confirmed.
+- Removed the extra temporary `getUserMedia()` capture. VoiceLoop's documented `agent.start()` is now the only Live Talk microphone acquisition path. Dictation is stopped before Live Talk starts.
+- Consolidated duplicate live-mode booleans into the existing `mode` state and removed the fake microphone-level ring update. The selected Web Speech provider does not emit VoiceLoop's pipeline `level` events, so the UI must not imply that it has a real amplitude reading.
+- A terminal VoiceLoop error now destroys the failed agent, clears the silence timer, and returns the visitor to text chat.
+- Extracted the speech profile and platform-backed voice LLM adapter into `src/assistant/voice/pj-voice-agent.ts`; a small session controller now owns audio unlock, start, idempotent teardown, and the voice agent's public methods. The React screen no longer constructs `VoiceAgent` directly.
+- Added Node test-runner coverage for the chat, availability, and consultation-request API contracts, plus deterministic Live Talk lifecycle tests for duplicate starts, idempotent teardown, and startup failure cleanup.
+
+### Remaining work before release
+
+1. Run `npm test`, `npm run lint`, and `npm run build` in a real checkout with the repository's installed dependencies. These checks have not yet been executed in this environment.
+2. Extract VoiceLoop construction and speech-profile configuration into a dedicated voice adapter module; keep React responsible for rendering and state transitions only.
+3. Add lifecycle tests for permission denial, unsupported browsers, start/stop repetition, error teardown, and text-to-voice session continuity.
+4. Decide whether the legacy `/pj-control` and non-assistant routes remain supported. The legacy Express/Gemini and serverless bridge paths should be retired only after route ownership is agreed.
+5. Perform the physical Android Chrome microphone test and confirm the production alias points to the exact tested commit. Do not deploy before these gates pass.
+
+**Current status:** architecture refactor in progress; no production deployment or main-branch change has been made. GitHub Actions did not report any workflow runs for the latest branch commit, and the local checkout/build could not be executed in this environment.
+
+## Release verification — 2026-10-30
+
+A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06bbf` was installed and built successfully.
+
+- `npm install --no-audit --no-fund`: completed.
+- `npm run test`: **7 passed, 0 failed**.
+- `npm run lint` (`tsc --noEmit`): passed.
+- `vite build`: passed; 1,673 modules transformed and production assets emitted.
+- The build gate now runs tests, TypeScript checking, and Vite build in sequence.
+- The first TypeScript run exposed a pre-existing unclosed `SYSTEM_INSTRUCTION` template literal in `server.ts`; that syntax error has been repaired. Strict typing issues in the refactor were also fixed.
+- Read-only live platform smoke checks returned HTTP 200 for `/api/health` and `/api/pj-assistant/booking-availability?date=2026-11-02`; the latter returned available slots. No test booking or production chat message was created.
+- Vercel preview/production deployment creation is currently blocked by the account's `api-deployments-free-per-day` limit (HTTP 402, retry after 24 hours). The production alias has therefore not been updated.
+- Physical Android Chrome microphone testing has not been performed and cannot be simulated by the build.
+
+**Release status:** code tests and production build pass. Not yet deployed. Do not state that the assistant is live until a successful deployment is assigned to `assistant.pjwebdev.online` and that exact production alias is verified.
