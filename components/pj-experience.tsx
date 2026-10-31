@@ -40,4 +40,4 @@ export function PjExperience({
     [slots, setSlots] = useState<AvailabilitySlot[]>([]),
     [slot, setSlot] = useState('');
   const [loadingSlots, setLoadingSlots] = useState(false),
-    [booking, setBooking] = us¶»§q«^
+    [booking, setBooking] = usÂ¶Â»Â§qÂ«^
