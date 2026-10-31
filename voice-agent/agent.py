@@ -109,7 +109,7 @@ async def pj_assistant_voice(ctx: JobContext) -> None:
         response_format="wav",
     )
 
-    session = AgentSession(stt=speech_to_text, tts=text_to_speech)
+    session = AgentSession(stt=speech_to_text, tts=text_to_speech, vad=vad)
     await session.start(agent=PJAssistant(), room=ctx.room)
     await ctx.connect()
 
