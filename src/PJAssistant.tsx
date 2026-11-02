@@ -353,7 +353,7 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            <button className="pj-talk-button" onClick={toggleLiveRecording}><Mic size={16} /> {isLiveRecording ? "Finish speaking" : "Start speaking"}</button><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button>
+            <button className="pj-talk-button" onClick={toggleLiveRecording}><Mic size={16} /> {isLiveRecording ? "Finish speaking" : "Start speaking"}</button>
           </div>
           <form className="pj-text-entry" onSubmit={sendText}><textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>
           <button className="pj-text-toggle" onClick={() => inputRef.current?.focus()}><Sparkles size={14} /> Review and edit your message</button>
