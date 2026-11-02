@@ -155,3 +155,16 @@ A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06
 - Physical Android Chrome microphone testing has not been performed and cannot be simulated by the build.
 
 **Release status:** code tests and production build pass. Not yet deployed. Do not state that the assistant is live until a successful deployment is assigned to `assistant.pjwebdev.online` and that exact production alias is verified.
+
+
+## Follow-up — 2026-11-02
+
+- The Vercel project was found configured as **Next.js** even though this repository is a Vite application. Its framework/build settings have now been corrected to Vite (npm run build, output dist, Node 22). Earlier deployments failed before compiling because Vercel could not detect a Next.js dependency.
+- Removed the five-second intro gate and eager voice warm-up from the first render. Consultation availability is now fetched only when the project enquiry form is opened.
+- Added short browser audio recording through MediaRecorder, with a 30-second cap, microphone-track cleanup, and a secure server-side Groq Whisper Large V3 Turbo transcription endpoint. The transcript is placed in the composer for review; audio and provider credentials are not sent to the browser.
+- Live Talk remains on the single VoiceLoop microphone owner from the architecture redesign. Recording and Live Talk are mutually exclusive; the user must finish a recording before starting Live Talk.
+- The public PJ Assistant now reuses the browser's current conversation history instead of re-reading and re-importing it through multiple Supabase calls on every turn. Its customer-facing system prompt is shorter and grounded in the existing PJ business record; the general multi-tenant assistant path is unchanged.
+- The public assistant response cap is reduced to 420 tokens to keep ordinary replies concise.
+- Added API-client tests for transcription payloads and client-side size validation.
+
+**Release gate:** the updated Vite build, test suite and TypeScript check must pass before assigning assistant.pjwebdev.online to the new deployment. A physical Android Chrome test is still required to verify microphone permission, recording, transcription, Live Talk start/stop and recovery on the actual handset. Until that test and the production alias check pass, the assistant must not be described as fully released.
