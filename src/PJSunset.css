@@ -310,3 +310,14 @@
  .pj-chat-compose .pj-chat-input-row{min-height:54px}
 }
 @media(max-height:720px){.pj-live-view .orb-stage{width:min(48vw,25svh);max-height:25svh}.pj-live-view .pj-live-transcript{max-height:18svh}.pj-live-view .pj-footer{display:none}}
+
+
+/* PJ Shop Mate-inspired slow molten-gold energy flow around the sun */
+.sun-orb{position:relative}
+.sun-orb::before{inset:-10%;background:conic-gradient(from 0deg,transparent 0deg,rgba(255,194,104,.06) 42deg,rgba(255,134,74,.34) 92deg,transparent 145deg,rgba(255,218,153,.24) 218deg,transparent 285deg,rgba(255,126,73,.2) 330deg,transparent 360deg);filter:blur(16px);animation:pj-solar-flow 24s linear infinite}
+.orb-ring.ring-one{border-color:rgba(255,190,123,.28);box-shadow:0 0 18px rgba(255,151,91,.07);animation:orbitDrift 26s linear infinite}
+.orb-ring.ring-two{border-color:rgba(255,220,171,.16);animation:orbitDrift 34s linear infinite reverse}
+@keyframes pj-solar-flow{to{transform:rotate(360deg)}}
+.pj-live-view .orb-stage.orb-listening .sun-orb::before{animation-duration:9s;filter:blur(20px);opacity:1}
+.pj-live-view .orb-stage.orb-speaking .sun-orb::before{animation-duration:4s;filter:blur(24px);opacity:1}
+@media(prefers-reduced-motion:reduce){.sun-orb::before{animation:none!important}}
