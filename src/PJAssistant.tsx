@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
-import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
 import './PJSunset.css';
 import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest, transcribeAssistantAudio } from './assistant/api/assistant-api';
 
@@ -60,6 +60,7 @@ export default function PJAssistant() {
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages]);
   useEffect(() => {
+    if (!bookingOpen) return;
     let cancelled = false;
     setSlots([]); setSelectedSlot(''); setBookingError('');
     getConsultationAvailability(date)
@@ -75,7 +76,14 @@ export default function PJAssistant() {
       try { agent?.destroy(); } catch { /* Voice session may already be closed. */ }
       if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
       if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
-      try { if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop(); } catch { /* Recorder may already be stopped. */ }
+      try {
+        if (mediaRecorderRef.current) {
+          mediaRecorderRef.current.onstop = null;
+          mediaRecorderRef.current.ondataavailable = null;
+          mediaRecorderRef.current.onerror = null;
+          if (mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
+        }
+      } catch { /* Recorder may already be stopped. */ }
       recordingStreamRef.current?.getTracks().forEach(track => track.stop());
       recordingStreamRef.current = null;
     };
@@ -231,6 +239,8 @@ export default function PJAssistant() {
         if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
+        if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
         setError('The microphone recording stopped unexpectedly. Please try again.');
         recordingStreamRef.current?.getTracks().forEach(track => track.stop());
         recordingStreamRef.current = null;
