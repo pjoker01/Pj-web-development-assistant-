@@ -24,13 +24,13 @@ const preferredPJVoice = () => {
     || english[0] || null;
 };
 const makeSpeechFriendly = (value: string) => value
-  .replace(/```[\s\S]*?```/g, ' ')
   .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
   .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
   .replace(/^\s*\|?[-:\s|]+\|?\s*$/gm, '')
   .replace(/\|/g, ', ')
   .replace(/^\s*[-*+]\s+/gm, '')
-  .replace(/\*\*|__|[*_~`#]/g, '')
+  .replace(/\*\*|__|[*_~#]/g, '')
+  .split(String.fromCharCode(96)).join('')
   .replace(/\s*\/\s*/g, ' or ')
   .replace(/[—–]/g, ', ')
   .replace(/\s{2,}/g, ' ')
