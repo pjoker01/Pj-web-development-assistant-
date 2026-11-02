@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { prewarmVoice } from '@todoforai/voiceloop';
 import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
