@@ -109,6 +109,8 @@ export default function PJAssistant() {
       return;
     }
     setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
+    // Start downloading the voice/VAD assets only after the visitor explicitly chooses Live Talk.
+    try { void prewarmVoice(); } catch { /* Voice warm-up is best-effort; the session can still start. */ }
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
     const agent = createPJVoiceSession({
       getSessionId: () => chatSessionIdRef.current,
