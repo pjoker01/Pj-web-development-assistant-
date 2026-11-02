@@ -24,18 +24,17 @@ const preferredPJVoice = () => {
     || english[0] || null;
 };
 const makeSpeechFriendly = (value: string) => value
-  .replace(/```[\\s\\S]*?```/g, ' ')
-  .replace(/!\\[([^\\]]*)\\]\\([^)]+\\)/g, '$1')
-  .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1')
-  .replace(/^\\s*\\|?[-:\\s|]+\\|?\\s*$/gm, '')
-  .replace(/\\|/g, ', ')
-  .replace(/^\\s*[-*+]\\s+/gm, '')
-  .replace(/\\*\\*|__|[*_~`#]/g, '')
-  .replace(/\\s*\\/\\s*/g, ' or ')
+  .replace(/```[\s\S]*?```/g, ' ')
+  .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  .replace(/^\s*\|?[-:\s|]+\|?\s*$/gm, '')
+  .replace(/\|/g, ', ')
+  .replace(/^\s*[-*+]\s+/gm, '')
+  .replace(/\*\*|__|[*_~`#]/g, '')
+  .replace(/\s*\/\s*/g, ' or ')
   .replace(/[—–]/g, ', ')
-  .replace(/\\s{2,}/g, ' ')
+  .replace(/\s{2,}/g, ' ')
   .trim();
-
 
 function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
