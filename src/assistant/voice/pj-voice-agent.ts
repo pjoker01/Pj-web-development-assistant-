@@ -12,7 +12,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
   return new VoiceAgent({
     sttProvider: 'webspeech',
     sttLang: 'en-ZA',
-    tts: new PiperTTS('en_US-ryan-high'),
+    tts: new PiperTTS('en_US-ryan-medium'),
     speed: 1.02,
     bargeInMinChars: 2,
     keyterms: ['PJ Web Development', 'PJ Assistant', 'Pretoria', 'Sunnyside', 'WhatsApp', 'website', 'ecommerce'],
