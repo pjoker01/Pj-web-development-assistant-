@@ -260,3 +260,19 @@
 .pj-chat-thinking p{color:#ffcb9d!important}
 .pj-dictation-button:disabled{opacity:.55;cursor:wait}
 @media(max-width:480px){.pj-booking-backdrop{padding:8px}.pj-booking-panel{max-height:94svh;border-radius:22px;padding:17px}.pj-booking-panel form{grid-template-columns:1fr!important}}
+
+/* Clear microphone capture and transcription feedback */
+.pj-recording-status{display:flex;align-items:center;gap:11px;margin:0 0 10px;padding:11px 13px;border:1px solid rgba(255,92,92,.38);border-radius:14px;background:linear-gradient(100deg,rgba(106,24,31,.34),rgba(39,22,30,.72));color:#fff1ed;text-align:left}
+.pj-recording-status>span:nth-child(2){display:grid;gap:3px;flex:1;min-width:0}
+.pj-recording-status strong{font-size:12px;font-weight:750}
+.pj-recording-status small{font-size:10px;color:#d9b9b5;line-height:1.4}
+.pj-recording-status time{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.06em;color:#ffb0a5}
+.pj-recording-pulse{width:10px;height:10px;flex:0 0 10px;border-radius:50%;background:#ff514f;box-shadow:0 0 0 0 rgba(255,81,79,.55);animation:pj-record-pulse 1.35s ease-out infinite}
+@keyframes pj-record-pulse{0%{box-shadow:0 0 0 0 rgba(255,81,79,.55)}75%,100%{box-shadow:0 0 0 9px rgba(255,81,79,0)}}
+.pj-transcribing-status{border-color:rgba(255,184,120,.32);background:linear-gradient(100deg,rgba(104,65,29,.3),rgba(39,31,27,.72))}
+.pj-transcribing-status small{color:#dfc7ae}
+.pj-transcribing-spinner{width:15px;height:15px;flex:0 0 15px;border:2px solid rgba(255,190,126,.25);border-top-color:#ffbd82;border-radius:50%;animation:pj-transcribe-spin .8s linear infinite}
+@keyframes pj-transcribe-spin{to{transform:rotate(360deg)}}
+.pj-dictation-button.is-active{background:rgba(255,70,70,.18)!important;border-color:rgba(255,100,100,.8)!important;color:#ffaaa2!important;animation:pj-mic-active 1.4s ease-in-out infinite}
+@keyframes pj-mic-active{50%{box-shadow:0 0 0 5px rgba(255,81,79,.1),0 0 20px rgba(255,81,79,.18)}}
+@media(prefers-reduced-motion:reduce){.pj-recording-pulse,.pj-transcribing-spinner,.pj-dictation-button.is-active{animation:none!important}}
