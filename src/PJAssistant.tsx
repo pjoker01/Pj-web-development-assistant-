@@ -446,7 +446,7 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            <div className={"pj-live-mic-indicator" + (isLiveRecording ? " is-active" : "")}><span className="pj-mic-wave"><i></i><i></i><i></i><i></i><i></i></span><span>{isLiveRecording ? "Listening — just speak" : mode === "speaking" ? "PJ is replying" : "Starting microphone…"}</span></div>
+            <div className={"pj-live-mic-indicator" + (mode === "listening" ? " is-active" : "")} aria-live="polite"><span className="pj-mic-wave"><i></i><i></i><i></i><i></i><i></i></span><span>{mode === "listening" ? "Listening — speak naturally" : mode === "speaking" ? "PJ is speaking" : "Connecting microphone…"}</span></div>
           </div>
           <form className="pj-text-entry" onSubmit={sendText}><textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>
           <button className="pj-text-toggle" onClick={() => inputRef.current?.focus()}><Sparkles size={14} /> Review and edit your message</button>
