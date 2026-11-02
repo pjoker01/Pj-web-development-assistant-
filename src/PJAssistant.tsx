@@ -23,6 +23,8 @@ export default function PJAssistant() {
   const nextMessageId = useRef(2);
   const speechRecognitionRef = useRef<any>(null);
   const liveFinalTranscriptRef = useRef('');
+  const liveActiveRef = useRef(false);
+  const liveRestartTimerRef = useRef<number | null>(null);
   const [isLiveRecording, setIsLiveRecording] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -74,6 +76,8 @@ export default function PJAssistant() {
     return () => {
       const recognition = speechRecognitionRef.current;
       speechRecognitionRef.current = null;
+      liveActiveRef.current = false;
+      if (liveRestartTimerRef.current !== null) window.clearTimeout(liveRestartTimerRef.current);
       try { recognition?.stop(); } catch { /* Recognition may already be stopped. */ }
       try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
       if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
@@ -95,58 +99,71 @@ export default function PJAssistant() {
     if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
   };
 
-  const switchToLive = async () => {
-    const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!BrowserSpeechRecognition) {
-      setError('Live voice input needs Chrome on Android or a supported desktop browser. Please allow microphone access, or continue with text chat.');
+  const speakLiveReply = (reply: string) => {
+    if (!('speechSynthesis' in window)) {
+      setMode('listening'); setStatus('PJ replied — listening for you');
+      startLiveRecognition();
       return;
     }
-    setError('');
-    setTextMode(true);
-    setMode('listening');
-    setStatus('PJ Live is ready');
-    addLine('agent', 'Hi, I’m PJ. What can I help you with?');
-    if ('speechSynthesis' in window) {
-      const greeting = new SpeechSynthesisUtterance('Hi, I’m PJ. What can I help you with?');
-      greeting.rate = 1.02;
-      greeting.onend = () => setStatus('Your turn — tap the microphone when ready');
-      window.speechSynthesis.speak(greeting);
-      setMode('speaking');
-    }
-    setDraft('');
-    setLiveDraft('');
-    liveFinalTranscriptRef.current = '';
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(reply);
+    const voices = window.speechSynthesis.getVoices();
+    utterance.voice = voices.find(voice => /en[-_]ZA/i.test(voice.lang)) || voices.find(voice => /en[-_]GB/i.test(voice.lang)) || null;
+    utterance.rate = 1.02; utterance.pitch = 1;
+    utterance.onstart = () => { setMode('speaking'); setStatus('PJ is speaking'); };
+    utterance.onend = () => {
+      if (!liveActiveRef.current) return;
+      setMode('listening'); setStatus('Listening — speak naturally');
+      startLiveRecognition();
+    };
+    utterance.onerror = () => {
+      if (!liveActiveRef.current) return;
+      setMode('listening'); setStatus('Listening — speak naturally');
+      startLiveRecognition();
+    };
+    window.speechSynthesis.speak(utterance);
   };
 
-  const endVoice = () => {
-    const recognition = speechRecognitionRef.current;
-    speechRecognitionRef.current = null;
-    try { recognition?.stop(); } catch { /* Recognition may already be stopped. */ }
-    try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
-    setIsLiveRecording(false);
-    setMode('idle');
+  const sendLiveTurn = async (rawText: string) => {
+    const text = rawText.trim();
+    if (!text || isSending) return;
+    addLine('user', text);
     setLiveDraft('');
-    setStatus('Ready for your message');
+    setIsSending(true); setError('');
+    try {
+      const body = await sendAssistantMessage({
+        message: text,
+        sessionId: chatSessionIdRef.current,
+        history: messages.filter(line => line.id !== 1).slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
+      });
+      if (body.sessionId) chatSessionIdRef.current = body.sessionId;
+      addLine('agent', body.reply);
+      speakLiveReply(body.reply);
+    } catch (err: any) {
+      setError(err?.message || 'PJ could not answer just now. Please try speaking again.');
+      setMode('listening'); setStatus('Listening — try again when ready');
+      startLiveRecognition();
+    } finally { setIsSending(false); }
   };
 
-  const toggleLiveRecording = () => {
-    if (isLiveRecording) {
-      try { speechRecognitionRef.current?.stop(); } catch { setError('The microphone could not be stopped.'); }
-      return;
-    }
+  const startLiveRecognition = () => {
+    if (!liveActiveRef.current || speechRecognitionRef.current) return;
     const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!BrowserSpeechRecognition) {
-      setError('Live voice input needs Chrome on Android. You can still type your message.');
-      return;
+      setError('Live listening is not supported in this browser. Please use Chrome on Android.');
+      liveActiveRef.current = false; setIsLiveRecording(false); setMode('idle'); return;
     }
     try {
-      window.speechSynthesis?.cancel();
       const recognition = new BrowserSpeechRecognition();
       recognition.lang = 'en-ZA';
-      recognition.continuous = true;
+      recognition.continuous = false;
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
       liveFinalTranscriptRef.current = '';
+      recognition.onstart = () => {
+        if (!liveActiveRef.current) return;
+        setIsLiveRecording(true); setMode('listening'); setStatus('Listening — speak naturally');
+      };
       recognition.onresult = (event: any) => {
         let interim = '';
         let completed = '';
@@ -159,71 +176,118 @@ export default function PJAssistant() {
         setLiveDraft([liveFinalTranscriptRef.current, interim].filter(Boolean).join(' ').trim());
       };
       recognition.onerror = (event: any) => {
-        setIsLiveRecording(false);
-        setError(event?.error === 'not-allowed'
-          ? 'Microphone access was blocked. Allow microphone access for assistant.pjwebdev.online in Chrome site settings.'
-          : 'PJ could not hear that clearly. Please tap the microphone and try again.');
+        if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
+          liveActiveRef.current = false; setIsLiveRecording(false); setMode('idle');
+          setError('Microphone permission is blocked. Allow microphone access for assistant.pjwebdev.online in Chrome site settings, then reopen PJ Live.');
+        }
       };
       recognition.onend = () => {
-        speechRecognitionRef.current = null;
+        if (speechRecognitionRef.current === recognition) speechRecognitionRef.current = null;
+        if (!liveActiveRef.current) return;
         setIsLiveRecording(false);
         const completed = liveFinalTranscriptRef.current.trim();
+        liveFinalTranscriptRef.current = '';
         if (completed) {
-          setDraft(previous => (previous ? previous + ' ' : '') + completed);
-          setStatus('Review your words, edit if needed, then press Send');
-          setTextMode(true);
-          window.setTimeout(() => inputRef.current?.focus(), 80);
+          setLiveDraft('');
+          void sendLiveTurn(completed);
         } else {
-          setStatus('Ready — tap the microphone when you want to speak');
+          setLiveDraft('');
+          if (liveRestartTimerRef.current !== null) window.clearTimeout(liveRestartTimerRef.current);
+          liveRestartTimerRef.current = window.setTimeout(() => {
+            liveRestartTimerRef.current = null;
+            startLiveRecognition();
+          }, 350);
         }
-        setLiveDraft('');
-        setMode('listening');
       };
       speechRecognitionRef.current = recognition;
       recognition.start();
-      setIsLiveRecording(true);
-      setMode('listening');
-      setStatus('Listening — your words will appear above the message box');
     } catch (err: any) {
       speechRecognitionRef.current = null;
       setIsLiveRecording(false);
-      setError(err?.message || 'The microphone could not start. Check Chrome microphone permission and try again.');
+      if (liveActiveRef.current) {
+        setError(err?.message || 'PJ Live could not start listening. Check microphone permission and try again.');
+        liveActiveRef.current = false; setMode('idle');
+      }
+    }
+  };
+
+  const switchToLive = async () => {
+    const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!BrowserSpeechRecognition) {
+      setError('Hands-free Live Talk needs Chrome on Android with microphone permission enabled.');
+      return;
+    }
+    setError('');
+    setTextMode(true); setDraft(''); setLiveDraft('');
+    setMessages(previous => [...previous.filter(line => line.id !== 1), { id: nextMessageId.current++, role: 'agent', text: 'Hi, I’m PJ. What can I help you with?' }]);
+    liveActiveRef.current = true;
+    setMode('speaking'); setStatus('PJ is greeting you');
+    const greeting = new SpeechSynthesisUtterance('Hi, I’m PJ. What can I help you with?');
+    greeting.rate = 1.02;
+    greeting.onend = () => {
+      if (!liveActiveRef.current) return;
+      setMode('listening'); setStatus('Listening — speak naturally');
+      startLiveRecognition();
+    };
+    greeting.onerror = () => {
+      if (!liveActiveRef.current) return;
+      setMode('listening'); setStatus('Listening — speak naturally');
+      startLiveRecognition();
+    };
+    if ('speechSynthesis' in window) window.speechSynthesis.speak(greeting);
+    else startLiveRecognition();
+  };
+
+  const endVoice = () => {
+    liveActiveRef.current = false;
+    if (liveRestartTimerRef.current !== null) window.clearTimeout(liveRestartTimerRef.current);
+    liveRestartTimerRef.current = null;
+    const recognition = speechRecognitionRef.current;
+    speechRecognitionRef.current = null;
+    try { recognition?.stop(); } catch { /* Recognition may already be stopped. */ }
+    try { window.speechSynthesis?.cancel(); } catch { /* Speech may already be stopped. */ }
+    setIsLiveRecording(false); setMode('idle'); setLiveDraft('');
+    setStatus('Ready for your message');
+  };
+
+  const toggleLiveRecording = () => {
+    // Kept as an explicit pause/resume control for accessibility; normal Live is hands-free.
+    if (isLiveRecording) {
+      const recognition = speechRecognitionRef.current;
+      speechRecognitionRef.current = null;
+      try { recognition?.stop(); } catch { /* Already stopped. */ }
+      setIsLiveRecording(false); setStatus('Microphone paused');
+      return;
+    }
+    if (liveActiveRef.current) {
+      setError('PJ Live listens automatically. Close and reopen Live if you need to reset the microphone.');
     }
   };
 
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); const text = draft.trim(); if (!text || isSending) return;
-    setIsSending(true); setError(''); setDraft('');
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || isSending) return;
+    setDraft('');
+    if (mode !== 'idle') {
+      await sendLiveTurn(text);
+      return;
+    }
+    setIsSending(true); setError('');
     addLine('user', text);
     try {
       const body = await sendAssistantMessage({
-        message: text,
-        sessionId: chatSessionIdRef.current,
+        message: text, sessionId: chatSessionIdRef.current,
         history: messages.filter(line => line.id !== 1).slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
       });
       if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply);
-      if (mode !== 'idle') {
-        setMode('speaking');
-        setStatus('PJ is speaking');
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(body.reply);
-          const voices = window.speechSynthesis.getVoices();
-          utterance.voice = voices.find(voice => /en[-_]ZA/i.test(voice.lang)) || voices.find(voice => /en[-_]GB/i.test(voice.lang)) || null;
-          utterance.rate = 1.02;
-          utterance.pitch = 1;
-          utterance.onend = () => { setMode('listening'); setStatus('Your turn — tap the microphone when ready'); };
-          utterance.onerror = () => { setMode('listening'); setStatus('Your turn — tap the microphone when ready'); };
-          window.speechSynthesis.speak(utterance);
-        } else { setMode('listening'); setStatus('PJ replied. You can speak or type again.'); }
-      } else setStatus('Ready for your message');
     } catch (err: any) { setError(err?.message || 'That message could not be sent. Please try again.'); }
     finally { setIsSending(false); }
   };
 
-
   const toggleDictation = async () => {
-    if (mode !== 'idle') { setError('Use the PJ Live microphone above the message box while Live Talk is open.'); return; }
+    if (mode !== 'idle') { setError('PJ Live is already listening hands-free. Close Live to use a separate voice note.'); return; }
     if (isDictating) {
       try {
         if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
@@ -348,7 +412,7 @@ export default function PJAssistant() {
       {mode !== 'idle' ? <>
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
         <SunsetOrb mode={mode} />
-        <div className={"pj-transcript pj-live-transcript pj-live-cloud" + (isLiveRecording ? " is-recording" : "")} aria-live="polite" aria-relevant="additions text">
+        <div className={"pj-transcript pj-live-transcript pj-live-cloud" + (mode === "listening" ? " is-recording" : "")} aria-live="polite" aria-relevant="additions text">
           {messages.filter(line => line.id !== 1).slice(-5).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           {liveDraft && <div className="pj-line user pj-live-interim" aria-label="Live transcription">{liveDraft}</div>}
           <div ref={transcriptEndRef} />
@@ -357,7 +421,7 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            <button className="pj-talk-button" onClick={toggleLiveRecording}><Mic size={16} /> {isLiveRecording ? "Finish speaking" : "Start speaking"}</button>
+            <div className={"pj-live-mic-indicator" + (isLiveRecording ? " is-active" : "")}><span className="pj-mic-wave"><i></i><i></i><i></i><i></i><i></i></span><span>{isLiveRecording ? "Listening — just speak" : mode === "speaking" ? "PJ is replying" : "Starting microphone…"}</span></div>
           </div>
           <form className="pj-text-entry" onSubmit={sendText}><textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>
           <button className="pj-text-toggle" onClick={() => inputRef.current?.focus()}><Sparkles size={14} /> Review and edit your message</button>
