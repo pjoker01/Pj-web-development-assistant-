@@ -10,6 +10,32 @@ type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
 const WELCOME_MESSAGE = "Hi, welcome to PJ Web Development. I'm PJ Assistant. What can I help you with today?";
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
+const preferredPJVoice = () => {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const english = voices.filter(voice => /^en([_-]|$)/i.test(voice.lang));
+  const maleName = /(male|daniel|david|george|james|oliver|ryan|thomas|arthur|alex|fred|aaron|guy|liam|matthew|andrew|mark|tom|lee|rishi|brian)/i;
+  return english.find(voice => /en[-_]ZA/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => /en[-_]GB/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => /en[-_]US/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => maleName.test(voice.name))
+    || english.find(voice => /en[-_]ZA/i.test(voice.lang))
+    || english.find(voice => /en[-_]GB/i.test(voice.lang))
+    || english[0] || null;
+};
+const makeSpeechFriendly = (value: string) => value
+  .replace(/```[\\s\\S]*?```/g, ' ')
+  .replace(/!\\[([^\\]]*)\\]\\([^)]+\\)/g, '$1')
+  .replace(/\\[([^\\]]+)\\]\\([^)]+\\)/g, '$1')
+  .replace(/^\\s*\\|?[-:\\s|]+\\|?\\s*$/gm, '')
+  .replace(/\\|/g, ', ')
+  .replace(/^\\s*[-*+]\\s+/gm, '')
+  .replace(/\\*\\*|__|[*_~`#]/g, '')
+  .replace(/\\s*\\/\\s*/g, ' or ')
+  .replace(/[—–]/g, ', ')
+  .replace(/\\s{2,}/g, ' ')
+  .trim();
+
 
 function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
@@ -106,10 +132,9 @@ export default function PJAssistant() {
       return;
     }
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(reply);
-    const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find(voice => /en[-_]ZA/i.test(voice.lang)) || voices.find(voice => /en[-_]GB/i.test(voice.lang)) || null;
-    utterance.rate = 1.02; utterance.pitch = 1;
+    const utterance = new SpeechSynthesisUtterance(makeSpeechFriendly(reply));
+    utterance.voice = preferredPJVoice();
+    utterance.rate = 0.98; utterance.pitch = 0.91;
     utterance.onstart = () => { setMode('speaking'); setStatus('PJ is speaking'); };
     utterance.onend = () => {
       if (!liveActiveRef.current) return;
@@ -223,7 +248,8 @@ export default function PJAssistant() {
     liveActiveRef.current = true;
     setMode('speaking'); setStatus('PJ is greeting you');
     const greeting = new SpeechSynthesisUtterance('Hi, I’m PJ. What can I help you with?');
-    greeting.rate = 1.02;
+    greeting.voice = preferredPJVoice();
+    greeting.rate = 0.98; greeting.pitch = 0.91;
     greeting.onend = () => {
       if (!liveActiveRef.current) return;
       setMode('listening'); setStatus('Listening — speak naturally');
@@ -405,7 +431,7 @@ export default function PJAssistant() {
 
   return <main className="pj-live-shell">
     <header className="pj-topbar">
-      <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
+      <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="https://raw.githubusercontent.com/pjoker01/Pj-ai-chat-platform-/main/public/pj-ai-icon-512.jpg" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
     <section className={mode !== 'idle' ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
