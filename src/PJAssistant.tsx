@@ -253,7 +253,8 @@ export default function PJAssistant() {
   };
   const buildLeadSummary = () => {
     const conversation = messages.slice(-12).map(line => (line.role === 'user' ? 'Customer: ' : 'PJ: ') + line.text).join('\n');
-    if (!leadSummary.trim()) setLeadSummary(conversation.slice(0, 3500));
+    const outline = leadSummary.trim();
+    setLeadSummary([outline ? 'Customer project outline: ' + outline : '', 'Conversation notes:\n' + conversation].filter(Boolean).join('\n\n').slice(0, 5500));
     setLeadReviewOpen(true);
   };
   const confirmLead = async () => {
