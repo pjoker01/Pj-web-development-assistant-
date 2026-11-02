@@ -109,3 +109,26 @@ export async function transcribeAssistantAudio(audio: Blob): Promise<string> {
   if (!transcript) throw new Error('I could not hear any clear words. Please try again.');
   return transcript;
 }
+
+export type PJAssistantLeadInput = {
+  leadId?: string;
+  name: string;
+  phone: string;
+  email?: string;
+  projectType: string;
+  timeframe: string;
+  summary: string;
+  conversationId: string;
+  stage: 'draft' | 'qualified';
+};
+
+export async function submitPJAssistantLead(input: PJAssistantLeadInput): Promise<{ success: true; leadId: string; stage: string; whatsappNotified?: boolean }> {
+  const response = await fetch(PJ_ASSISTANT_API + '/leads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = await readJson<{ success?: boolean; leadId?: string; stage?: string; whatsappNotified?: boolean }>(response);
+  if (body.success !== true || !body.leadId) throw new Error('Your project enquiry could not be saved. Please try again.');
+  return { success: true, leadId: body.leadId, stage: body.stage || input.stage, whatsappNotified: Boolean(body.whatsappNotified) };
+}
