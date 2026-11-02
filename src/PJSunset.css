@@ -345,3 +345,11 @@ radial-gradient(ellipse at 50% 92%,rgba(255,161,111,.08),transparent 34%)}
 @keyframes pj-cloud-drift{from{transform:translate3d(3%,0,0) scale(1)}to{transform:translate3d(-5%,-5px,0) scale(1.08)}}
 .pj-live-view .pj-live-status{display:none}
 @media(prefers-reduced-motion:reduce){.pj-live-cloud:before,.pj-live-cloud:after,.pj-live-cloud .pj-live-interim{animation:none!important}}
+
+
+/* The low cloud reacts to the user's voice, not the microphone button. */
+.pj-live-cloud.is-recording:before{animation:pj-cloud-listening 2.8s ease-in-out infinite;opacity:.78;filter:blur(28px)}
+.pj-live-cloud.is-recording:after{animation:pj-cloud-listening-drift 5s ease-in-out infinite alternate;opacity:.66;filter:blur(30px)}
+.pj-live-cloud.is-recording .pj-live-interim{animation:pj-words-rise 2.1s ease-out both}
+@keyframes pj-cloud-listening{0%,100%{transform:translate3d(-2%,0,0) scale(.94);opacity:.38}50%{transform:translate3d(2%,-12px,0) scale(1.1);opacity:.82}}
+@keyframes pj-cloud-listening-drift{from{transform:translate3d(4%,2px,0) scale(.94)}to{transform:translate3d(-6%,-10px,0) scale(1.1)}}
