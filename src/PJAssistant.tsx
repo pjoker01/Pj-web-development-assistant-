@@ -10,6 +10,31 @@ type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
 type VoiceMode = 'idle' | 'connecting' | 'listening' | 'speaking';
 const WELCOME_MESSAGE = "Hi, welcome to PJ Web Development. I'm PJ Assistant. What can I help you with today?";
 const localDate = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); };
+const preferredPJVoice = () => {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const english = voices.filter(voice => /^en([_-]|$)/i.test(voice.lang));
+  const maleName = /(male|daniel|david|george|james|oliver|ryan|thomas|arthur|alex|fred|aaron|guy|liam|matthew|andrew|mark|tom|lee|rishi|brian)/i;
+  return english.find(voice => /en[-_]ZA/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => /en[-_]GB/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => /en[-_]US/i.test(voice.lang) && maleName.test(voice.name))
+    || english.find(voice => maleName.test(voice.name))
+    || english.find(voice => /en[-_]ZA/i.test(voice.lang))
+    || english.find(voice => /en[-_]GB/i.test(voice.lang))
+    || english[0] || null;
+};
+const makeSpeechFriendly = (value: string) => value
+  .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  .replace(/^\s*\|?[-:\s|]+\|?\s*$/gm, '')
+  .replace(/\|/g, ', ')
+  .replace(/^\s*[-*+]\s+/gm, '')
+  .replace(/\*\*|__|[*_~#]/g, '')
+  .split(String.fromCharCode(96)).join('')
+  .replace(/\s*\/\s*/g, ' or ')
+  .replace(/[—–]/g, ', ')
+  .replace(/\s{2,}/g, ' ')
+  .trim();
 
 function SunsetOrb({ mode }: { mode: VoiceMode }) {
   return <div className={'orb-stage orb-' + mode} aria-label={mode === 'listening' ? 'PJ Assistant is listening' : mode === 'speaking' ? 'PJ Assistant is speaking' : 'PJ sunset assistant'}>
@@ -106,10 +131,9 @@ export default function PJAssistant() {
       return;
     }
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(reply);
-    const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find(voice => /en[-_]ZA/i.test(voice.lang)) || voices.find(voice => /en[-_]GB/i.test(voice.lang)) || null;
-    utterance.rate = 1.02; utterance.pitch = 1;
+    const utterance = new SpeechSynthesisUtterance(makeSpeechFriendly(reply));
+    utterance.voice = preferredPJVoice();
+    utterance.rate = 0.98; utterance.pitch = 0.91;
     utterance.onstart = () => { setMode('speaking'); setStatus('PJ is speaking'); };
     utterance.onend = () => {
       if (!liveActiveRef.current) return;
@@ -223,7 +247,8 @@ export default function PJAssistant() {
     liveActiveRef.current = true;
     setMode('speaking'); setStatus('PJ is greeting you');
     const greeting = new SpeechSynthesisUtterance('Hi, I’m PJ. What can I help you with?');
-    greeting.rate = 1.02;
+    greeting.voice = preferredPJVoice();
+    greeting.rate = 0.98; greeting.pitch = 0.91;
     greeting.onend = () => {
       if (!liveActiveRef.current) return;
       setMode('listening'); setStatus('Listening — speak naturally');
@@ -405,7 +430,7 @@ export default function PJAssistant() {
 
   return <main className="pj-live-shell">
     <header className="pj-topbar">
-      <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
+      <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="https://raw.githubusercontent.com/pjoker01/Pj-ai-chat-platform-/main/public/pj-ai-icon-512.jpg" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
     </header>
     <section className={mode !== 'idle' ? 'pj-center pj-live-view' : 'pj-center pj-chat-view'}>
@@ -421,7 +446,7 @@ export default function PJAssistant() {
         {error && <div className="pj-error" role="alert">{error}</div>}
         <div className="pj-controls pj-live-controls">
           <div className="pj-main-controls">
-            <div className={"pj-live-mic-indicator" + (isLiveRecording ? " is-active" : "")}><span className="pj-mic-wave"><i></i><i></i><i></i><i></i><i></i></span><span>{isLiveRecording ? "Listening — just speak" : mode === "speaking" ? "PJ is replying" : "Starting microphone…"}</span></div>
+            <div className={"pj-live-mic-indicator" + (mode === "listening" ? " is-active" : "")} aria-live="polite"><span className="pj-mic-wave"><i></i><i></i><i></i><i></i><i></i></span><span>{mode === "listening" ? "Listening — speak naturally" : mode === "speaking" ? "PJ is speaking" : "Connecting microphone…"}</span></div>
           </div>
           <form className="pj-text-entry" onSubmit={sendText}><textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>
           <button className="pj-text-toggle" onClick={() => inputRef.current?.focus()}><Sparkles size={14} /> Review and edit your message</button>
@@ -452,11 +477,14 @@ export default function PJAssistant() {
     {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
       <section className="pj-booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}><div><p style={{ margin: 0, color: '#ffbd82', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase' }}>Let's build something</p><h2 id="booking-title" style={{ margin: '7px 0', fontSize: 23, letterSpacing: '-.04em' }}>Send Your Project</h2><p style={{ margin: 0, color: '#b7a7a0', fontSize: 12, lineHeight: 1.7 }}>Tell me the essentials. PJ will review your idea and follow up with the next steps.</p></div><button className="pj-quiet-button" onClick={() => setBookingOpen(false)} aria-label="Close project form"><X size={16} /></button></div>
-        <form onSubmit={submitBooking} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12, marginTop: 20 }}>
+        <form onSubmit={submitBooking} className="pj-project-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12, marginTop: 20 }}>
+          <div className="pj-form-section-title"><span>01</span><strong>Your details</strong><small>How PJ can reach you</small></div>
           <label>Your name<input value={customerName} onChange={e => setCustomerName(e.target.value)} minLength={2} maxLength={120} required placeholder="Full name" /></label>
           <label>Business or project name<input value={businessName} onChange={e => setBusinessName(e.target.value)} minLength={2} maxLength={160} required placeholder="Business name or project title" /></label>
+          <div className="pj-form-section-title"><span>02</span><strong>Project details</strong><small>What you want to build</small></div>
           <label>Project type<select value={businessType} onChange={e => setBusinessType(e.target.value)} required><option value="">Choose a project</option><option>Business website</option><option>Online store</option><option>AI chatbot / assistant</option><option>Web app or dashboard</option><option>Website redesign</option><option>Other digital project</option></select></label>
           <label>Your location<input value={projectLocation} onChange={e => setProjectLocation(e.target.value)} minLength={2} maxLength={120} required placeholder="City or area" /></label>
+          <div className="pj-form-section-title"><span>03</span><strong>Consultation</strong><small>Choose a suitable time to discuss it</small></div>
           <label>Consultation date<input type="date" value={date} min={localDate()} onChange={e => { setDate(e.target.value); setSelectedSlot(''); }} required /></label>
           <label>Available consultation time<select value={selectedSlot} onChange={e => setSelectedSlot(e.target.value)} required disabled={slots.length === 0}><option value="">{slots.length ? 'Choose an available time' : 'No available times for this date'}</option>{slots.map(slot => <option key={slot.start} value={slot.start}>{new Date(slot.start).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Johannesburg' })}</option>)}</select></label>
           <label>Phone or WhatsApp<input value={customerContact} onChange={e => setCustomerContact(e.target.value)} minLength={5} maxLength={160} required placeholder="Your phone or WhatsApp number" /></label>
