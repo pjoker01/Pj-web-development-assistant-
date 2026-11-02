@@ -235,10 +235,10 @@ export default function PJAssistant() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      recordingStreamRef.current = stream;
       const supportedTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
       const mimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      recordingStreamRef.current = stream;
       recordingChunksRef.current = [];
       mediaRecorderRef.current = recorder;
 
