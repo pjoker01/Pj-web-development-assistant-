@@ -117,3 +117,45 @@ test('consultation request rejects a missing appointment time before network acc
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test('audio transcription sends a short recording to the secure platform endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = '';
+  let requestBody: any;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestUrl = String(input);
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ text: 'I need a business website.' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  try {
+    const { transcribeAssistantAudio } = await import('./assistant-api.ts');
+    const audio = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/webm' });
+    const transcript = await transcribeAssistantAudio(audio);
+    assert.equal(requestUrl, 'https://chat.pjwebdev.online/api/pj-assistant/transcribe');
+    assert.equal(requestBody.mimeType, 'audio/webm');
+    assert.equal(typeof requestBody.audioBase64, 'string');
+    assert.equal(transcript, 'I need a business website.');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('audio transcription rejects empty and oversized recordings before network access', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  try {
+    const { transcribeAssistantAudio } = await import('./assistant-api.ts');
+    await assert.rejects(transcribeAssistantAudio(new Blob([])), /No audio was recorded/);
+    await assert.rejects(transcribeAssistantAudio(new Blob([new Uint8Array(2_700_001)])), /too large/);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
