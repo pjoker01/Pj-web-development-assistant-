@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { prewarmVoice } from '@todoforai/voiceloop';
 import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
@@ -28,8 +27,9 @@ export default function PJAssistant() {
   const voiceSilenceTimerRef = useRef<number | null>(null);
   const voiceSilenceFollowupSentRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [mode, setMode] = useState<VoiceMode>('idle');
+  const [liveDraft, setLiveDraft] = useState('');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([{ id: 1, role: 'agent', text: WELCOME_MESSAGE }]);
   const chatSessionIdRef = useRef('pjassistant-' + (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)));
@@ -37,7 +37,6 @@ export default function PJAssistant() {
   const [isSending, setIsSending] = useState(false);
   const [textMode, setTextMode] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingIntervalRef = useRef<number | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -61,7 +60,8 @@ export default function PJAssistant() {
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingError, setBookingError] = useState('');
 
-  useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages]);
+  useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
+  useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 112) + 'px'; }, [draft, textMode, mode]);
   useEffect(() => {
     if (!bookingOpen) return;
     let cancelled = false;
@@ -79,7 +79,6 @@ export default function PJAssistant() {
       try { agent?.destroy(); } catch { /* Voice session may already be closed. */ }
       if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
       if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
-      if (recordingIntervalRef.current !== null) window.clearInterval(recordingIntervalRef.current);
       try {
         if (mediaRecorderRef.current) {
           mediaRecorderRef.current.onstop = null;
@@ -114,7 +113,6 @@ export default function PJAssistant() {
     }
     setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
     // Start downloading the voice/VAD assets only after the visitor explicitly chooses Live Talk.
-    try { void prewarmVoice(); } catch { /* Voice warm-up is best-effort; the session can still start. */ }
     voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
     const agent = createPJVoiceSession({
       getSessionId: () => chatSessionIdRef.current,
@@ -125,10 +123,12 @@ export default function PJAssistant() {
           else if (event.state === 'thinking') { setMode('connecting'); setStatus('Thinking…'); }
           else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
-        if (event.type === 'stt' && event.turnComplete && event.text) {
-          voiceSilenceFollowupSentRef.current = false; addLine('user', event.text);
+        if (event.type === 'stt' && event.text) {
+          setLiveDraft(String(event.text));
+          if (event.turnComplete) { voiceSilenceFollowupSentRef.current = false; addLine('user', event.text); setLiveDraft('');
           if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
           voiceSilenceTimerRef.current = null;
+          }
         }
         if (event.type === 'assistant') {
           const visibleText = String(event.full || event.text || '').trim();
@@ -184,7 +184,7 @@ export default function PJAssistant() {
     voiceSilenceTimerRef.current = null;
     const current = voiceAgentRef.current; voiceAgentRef.current = null;
     try { current?.destroy(); } catch { /* Already ended. */ }
-    setMode('idle'); setStatus('Ready for your message');
+    setMode('idle'); setLiveDraft(''); setStatus('Ready for your message');
   };
 
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
@@ -294,10 +294,8 @@ export default function PJAssistant() {
       };
 
       recorder.start(250);
-      setRecordingSeconds(0);
       setIsDictating(true);
-      setStatus('Recording — tap the microphone again to finish');
-      recordingIntervalRef.current = window.setInterval(() => setRecordingSeconds(seconds => seconds + 1), 1000);
+      setStatus('Listening — tap the microphone again to finish');
       recordingTimeoutRef.current = window.setTimeout(() => {
         if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
       }, 30000);
@@ -346,7 +344,8 @@ export default function PJAssistant() {
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
         <SunsetOrb mode={mode} />
         <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
-          {messages.slice(-6).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
+          {messages.filter(line => line.id !== 1).slice(-5).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
+          {liveDraft && <div className="pj-line user pj-live-interim" aria-label="Live transcription">{liveDraft}</div>}
           <div ref={transcriptEndRef} />
         </div>
         <div className={'pj-live-status is-' + mode} role="status"><span className="pj-status-dot" />{mode === 'speaking' ? 'Speaking' : mode === 'connecting' ? 'Connecting' : 'Listening'}</div>
@@ -355,7 +354,7 @@ export default function PJAssistant() {
           <div className="pj-main-controls">
             <button className="pj-talk-button" onClick={endVoice}><MicOff size={16} /> Stop PJ Live Voice</button>
           </div>
-          {textMode && <form className="pj-text-entry" onSubmit={sendText}><input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
+          {textMode && <form className="pj-text-entry" onSubmit={sendText}><textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Type a message…" aria-label="Message PJ Assistant" maxLength={2000} /><button className="pj-send" type="submit" disabled={!draft.trim() || isSending} aria-label="Send message"><ArrowUp size={18} /></button></form>}
           <button className="pj-text-toggle" onClick={() => setTextMode(value => !value)}>{textMode ? <><ChevronDown size={14} /> Hide typing</> : <><Sparkles size={14} /> Type a message</>}</button>
         </div>
       </> : <>
@@ -370,10 +369,8 @@ export default function PJAssistant() {
           <button onClick={() => setError('')} style={{ marginLeft: 8, color: '#ffe2d8', background: 'transparent', border: 0, cursor: 'pointer' }}><X size={12} style={{ display: 'inline' }} /> Dismiss</button>
         </div>}
         <div className="pj-chat-compose">
-          {isDictating && <div className="pj-recording-status" role="status" aria-live="polite"><span className="pj-recording-pulse" /><span><strong>Recording your voice</strong><small>Speak naturally · tap the microphone to finish</small></span><time>{String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:{String(recordingSeconds % 60).padStart(2, '0')}</time></div>}
-          {isTranscribing && <div className="pj-recording-status pj-transcribing-status" role="status" aria-live="polite"><span className="pj-transcribing-spinner" /><span><strong>Transcribing your words…</strong><small>Your recognised speech will appear in the message box</small></span></div>}
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
-            <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
+            <textarea ref={inputRef} rows={1} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
             <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} disabled={isTranscribing || (!isDictating && mode !== 'idle')} aria-label={isDictating ? 'Stop recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'} title={isDictating ? 'Recording — tap to finish' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
             <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
             <button className="pj-send" type="submit" disabled={!draft.trim() || isSending || isTranscribing} aria-label="Send message"><ArrowUp size={18} /></button>
