@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
 import './PJSunset.css';
-import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest, transcribeAssistantAudio } from './assistant/api/assistant-api';
+import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest, submitPJAssistantLead, transcribeAssistantAudio } from './assistant/api/assistant-api';
 import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 type Slot = { start: string; end: string; available: boolean };
