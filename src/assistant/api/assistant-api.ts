@@ -87,3 +87,25 @@ export async function submitConsultationRequest(input: ConsultationRequest): Pro
     status: body.status || 'pending_confirmation',
   };
 }
+
+
+/** Secure server-side transcription for short browser-recorded voice messages. */
+export async function transcribeAssistantAudio(audio: Blob): Promise<string> {
+  if (!audio.size) throw new Error('No audio was recorded. Please try again.');
+  if (audio.size > 2_700_000) throw new Error('That recording is too large. Please keep voice messages under 30 seconds.');
+  const bytes = new Uint8Array(await audio.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+  }
+  const response = await fetch(PJ_ASSISTANT_API + '/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audioBase64: btoa(binary), mimeType: audio.type || 'audio/webm' }),
+    signal: AbortSignal.timeout(25000),
+  });
+  const body = await readJson<{ text?: string }>(response);
+  const transcript = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!transcript) throw new Error('I could not hear any clear words. Please try again.');
+  return transcript;
+}
