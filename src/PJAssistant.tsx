@@ -242,6 +242,28 @@ export default function PJAssistant() {
     }
   };
 
+  const saveLeadDraft = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (leadSaving) return; setLeadSaving(true); setLeadError('');
+    try {
+      const result = await submitPJAssistantLead({ leadId: leadId || undefined, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'draft' });
+      setLeadId(result.leadId); setLeadFormOpen(false); setLeadPromptVisible(false);
+      setLeadSavedMessage('Your contact details are safely saved. We can keep discussing your project, then review everything together.');
+      addLine('agent', 'Thanks — I’ve saved your contact details and project outline. Let’s talk through the details, and when you’re ready we can review the full summary together.');
+    } catch (err: any) { setLeadError(err?.message || 'I could not save your enquiry. Please try again.'); } finally { setLeadSaving(false); }
+  };
+  const buildLeadSummary = () => {
+    const conversation = messages.slice(-12).map(line => (line.role === 'user' ? 'Customer: ' : 'PJ: ') + line.text).join('\n');
+    if (!leadSummary.trim()) setLeadSummary(conversation.slice(0, 3500));
+    setLeadReviewOpen(true);
+  };
+  const confirmLead = async () => {
+    if (!leadId || leadSaving) return; setLeadSaving(true); setLeadError('');
+    try {
+      await submitPJAssistantLead({ leadId, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'qualified' });
+      setLeadReviewOpen(false); setLeadSavedMessage('Your project enquiry is confirmed and has been sent to PJ for follow-up.');
+      addLine('agent', 'Perfect — your project brief is confirmed. PJ has received your enquiry and can follow up using the contact details you provided.');
+    } catch (err: any) { setLeadError(err?.message || 'I could not confirm your project brief. Please try again.'); } finally { setLeadSaving(false); }
+  };
   const sendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
