@@ -124,7 +124,7 @@ export default function PJAssistant() {
           else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
         if (event.type === 'stt' && event.text) {
-          setLiveDraft(String(event.text));
+          setLiveDraft(event.turnComplete ? '' : [event.committed, event.text].filter(Boolean).join(' ').trim());
           if (event.turnComplete) { voiceSilenceFollowupSentRef.current = false; addLine('user', event.text); setLiveDraft('');
           if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
           voiceSilenceTimerRef.current = null;
