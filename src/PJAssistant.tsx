@@ -90,6 +90,19 @@ export default function PJAssistant() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingError, setBookingError] = useState('');
+  const [leadPromptVisible, setLeadPromptVisible] = useState(false);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
+  const [leadReviewOpen, setLeadReviewOpen] = useState(false);
+  const [leadSaving, setLeadSaving] = useState(false);
+  const [leadId, setLeadId] = useState('');
+  const [leadName, setLeadName] = useState('');
+  const [leadPhone, setLeadPhone] = useState('');
+  const [leadEmail, setLeadEmail] = useState('');
+  const [leadProjectType, setLeadProjectType] = useState('');
+  const [leadTimeframe, setLeadTimeframe] = useState('');
+  const [leadSummary, setLeadSummary] = useState('');
+  const [leadError, setLeadError] = useState('');
+  const [leadSavedMessage, setLeadSavedMessage] = useState('');
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
   useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 112) + 'px'; }, [draft, textMode, mode]);
@@ -130,7 +143,10 @@ export default function PJAssistant() {
 
   const addLine = (role: ChatLine['role'], text: string) => {
     const clean = text?.trim();
-    if (clean) setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
+    if (clean) {
+      setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
+      if (role === 'user' && !leadId && /(i need|i want|looking for|interested in|want to build|need a|website|online store|chatbot|voice assistant|web app|redesign|quote|quotation|pricing)/i.test(clean)) setLeadPromptVisible(true);
+    }
   };
 
   const sendLiveTurn = async (rawText: string) => {
