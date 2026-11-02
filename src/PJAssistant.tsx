@@ -24,8 +24,6 @@ export default function PJAssistant() {
   const nextMessageId = useRef(2);
   const voiceAgentRef = useRef<any>(null);
   const voiceAssistantDraftIdRef = useRef<number | null>(null);
-  const voiceSilenceTimerRef = useRef<number | null>(null);
-  const voiceSilenceFollowupSentRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [mode, setMode] = useState<VoiceMode>('idle');
@@ -77,7 +75,6 @@ export default function PJAssistant() {
       const agent = voiceAgentRef.current;
       voiceAgentRef.current = null;
       try { agent?.destroy(); } catch { /* Voice session may already be closed. */ }
-      if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
       if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
       try {
         if (mediaRecorderRef.current) {
@@ -113,7 +110,7 @@ export default function PJAssistant() {
     }
     setError(''); setMode('connecting'); setStatus('Preparing PJ Live Voice…');
     // Start downloading the voice/VAD assets only after the visitor explicitly chooses Live Talk.
-    voiceSilenceFollowupSentRef.current = false; voiceAssistantDraftIdRef.current = null;
+    voiceAssistantDraftIdRef.current = null;
     const agent = createPJVoiceSession({
       getSessionId: () => chatSessionIdRef.current,
       setSessionId: sessionId => { chatSessionIdRef.current = sessionId; },
@@ -124,10 +121,12 @@ export default function PJAssistant() {
           else if (event.state === 'speaking') { setMode('speaking'); setStatus('PJ Assistant is speaking'); }
         }
         if (event.type === 'stt' && event.text) {
-          setLiveDraft(event.turnComplete ? '' : [event.committed, event.text].filter(Boolean).join(' ').trim());
-          if (event.turnComplete) { voiceSilenceFollowupSentRef.current = false; addLine('user', event.text); setLiveDraft('');
-          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-          voiceSilenceTimerRef.current = null;
+          const interim = [event.committed, event.text].filter(Boolean).join(' ').trim();
+          setLiveDraft(event.turnComplete ? '' : interim);
+          if (event.turnComplete) {
+            const completed = String(event.text || event.committed || interim).trim();
+            if (completed) addLine('user', completed);
+            setLiveDraft('');
           }
         }
         if (event.type === 'assistant') {
@@ -139,12 +138,6 @@ export default function PJAssistant() {
           }
           if (event.final) {
             voiceAssistantDraftIdRef.current = null;
-            if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-            voiceSilenceTimerRef.current = window.setTimeout(() => {
-              if (!voiceAgentRef.current || voiceSilenceFollowupSentRef.current) return;
-              voiceSilenceFollowupSentRef.current = true;
-              void voiceAgentRef.current.notify('[PJ_SILENCE_CHECKIN]').catch((err: any) => setError(err?.message || 'PJ Assistant could not check in. You can keep typing.'));
-            }, 12000);
           }
         }
         if (event.type === 'error') {
@@ -180,8 +173,6 @@ export default function PJAssistant() {
   };
 
   const endVoice = () => {
-    if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-    voiceSilenceTimerRef.current = null;
     const current = voiceAgentRef.current; voiceAgentRef.current = null;
     try { current?.destroy(); } catch { /* Already ended. */ }
     setMode('idle'); setLiveDraft(''); setStatus('Ready for your message');
@@ -343,7 +334,7 @@ export default function PJAssistant() {
       {mode !== 'idle' ? <>
         <div className="pj-live-minihead"><span className="pj-live-mark"><span className="pj-status-dot" /> PJ LIVE</span><button className="pj-quiet-button" onClick={endVoice}><X size={14} /> Close live</button></div>
         <SunsetOrb mode={mode} />
-        <div className="pj-transcript pj-live-transcript" aria-live="polite" aria-relevant="additions text">
+        <div className="pj-transcript pj-live-transcript pj-live-cloud" aria-live="polite" aria-relevant="additions text">
           {messages.filter(line => line.id !== 1).slice(-5).map(line => <div key={line.id} className={'pj-line ' + line.role}>{line.text}</div>)}
           {liveDraft && <div className="pj-line user pj-live-interim" aria-label="Live transcription">{liveDraft}</div>}
           <div ref={transcriptEndRef} />
