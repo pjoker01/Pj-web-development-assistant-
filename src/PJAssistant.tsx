@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, X } from 'lucide-react';
 import './PJSunset.css';
 import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest, transcribeAssistantAudio } from './assistant/api/assistant-api';
 
@@ -104,7 +104,15 @@ export default function PJAssistant() {
     setError('');
     setTextMode(true);
     setMode('listening');
-    setStatus('PJ Live is ready — tap the microphone when you want to speak');
+    setStatus('PJ Live is ready');
+    addLine('agent', 'Hi, I’m PJ. What can I help you with?');
+    if ('speechSynthesis' in window) {
+      const greeting = new SpeechSynthesisUtterance('Hi, I’m PJ. What can I help you with?');
+      greeting.rate = 1.02;
+      greeting.onend = () => setStatus('Your turn — tap the microphone when ready');
+      window.speechSynthesis.speak(greeting);
+      setMode('speaking');
+    }
     setDraft('');
     setLiveDraft('');
     liveFinalTranscriptRef.current = '';
@@ -213,10 +221,6 @@ export default function PJAssistant() {
     finally { setIsSending(false); }
   };
 
-  const toggleText = () => {
-    setTextMode(value => !value);
-    window.setTimeout(() => inputRef.current?.focus(), 150);
-  };
 
   const toggleDictation = async () => {
     if (mode !== 'idle') { setError('Use the PJ Live microphone above the message box while Live Talk is open.'); return; }
