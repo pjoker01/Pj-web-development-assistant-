@@ -212,6 +212,10 @@ export default function PJAssistant() {
   };
 
   const toggleDictation = async () => {
+    if (voiceAgentRef.current && mode !== 'idle') {
+      setError('End Live Talk before recording a separate voice message.');
+      return;
+    }
     if (isDictating) {
       try {
         if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
@@ -242,12 +246,15 @@ export default function PJAssistant() {
         if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
+        recorder.onstop = null;
+        recorder.ondataavailable = null;
         if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
         recordingTimeoutRef.current = null;
         setError('The microphone recording stopped unexpectedly. Please try again.');
         recordingStreamRef.current?.getTracks().forEach(track => track.stop());
         recordingStreamRef.current = null;
         mediaRecorderRef.current = null;
+        recordingChunksRef.current = [];
         setIsDictating(false);
       };
       recorder.onstop = async () => {
@@ -356,7 +363,7 @@ export default function PJAssistant() {
         <div className="pj-chat-compose">
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
             <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
-            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} disabled={isTranscribing} aria-label={isDictating ? 'Stop recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'} title={isDictating ? 'Tap to finish recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
+            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} disabled={isTranscribing || (!isDictating && mode !== 'idle')} aria-label={isDictating ? 'Stop recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'} title={isDictating ? 'Tap to finish recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
             <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
             <button className="pj-send" type="submit" disabled={!draft.trim() || isSending || isTranscribing} aria-label="Send message"><ArrowUp size={18} /></button>
           </form>
