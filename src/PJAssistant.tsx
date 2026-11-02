@@ -149,8 +149,6 @@ export default function PJAssistant() {
           const failedAgent = voiceAgentRef.current;
           voiceAgentRef.current = null;
           try { failedAgent?.destroy(); } catch { /* The library may already have torn down. */ }
-          if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
-          voiceSilenceTimerRef.current = null;
           setMode('idle');
           setStatus('Voice stopped — you can continue by typing');
         }
