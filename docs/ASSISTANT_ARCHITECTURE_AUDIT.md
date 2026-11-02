@@ -168,3 +168,5 @@ A clean Vercel sandbox checkout of commit `77ea7c7925b3bdccec37a4ca151738589ad06
 - Added API-client tests for transcription payloads and client-side size validation.
 
 **Release gate:** the updated Vite build, test suite and TypeScript check must pass before assigning assistant.pjwebdev.online to the new deployment. A physical Android Chrome test is still required to verify microphone permission, recording, transcription, Live Talk start/stop and recovery on the actual handset. Until that test and the production alias check pass, the assistant must not be described as fully released.
+
+- Vercel's install command now explicitly includes development dependencies (`npm install --include=dev`) so the project's own TypeScript check has its declared type packages available during production builds.
