@@ -447,3 +447,16 @@ opacity:.85;animation:pj-orb-stars 28s linear infinite}
 .pj-project-form>label{min-width:0}
 .pj-project-form>label input,.pj-project-form>label select,.pj-project-form>label textarea{width:100%;box-sizing:border-box}
 @media(max-width:480px){.pj-project-form .pj-form-section-title{gap:8px}.pj-project-form .pj-form-section-title small{font-size:9px}}
+
+.pj-lead-invite,.pj-lead-saved,.pj-lead-card{width:min(100%,620px);box-sizing:border-box;margin:12px auto;padding:15px;border:1px solid rgba(255,185,135,.2);border-radius:20px;background:linear-gradient(145deg,rgba(30,24,31,.94),rgba(15,16,24,.96));color:#f4e6dc}
+.pj-lead-invite{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pj-lead-invite>div{flex:1 1 100%}
+.pj-lead-invite strong,.pj-lead-card-head strong{font-size:13px}.pj-lead-invite p,.pj-lead-card>p{margin:5px 0;color:#b9a9a2;font-size:11px;line-height:1.6}
+.pj-lead-invite button,.pj-lead-actions button:first-child,.pj-lead-saved button{border:0;border-radius:999px;padding:10px 15px;background:linear-gradient(100deg,#ffd39b,#ff8e61);color:#21140f;font-weight:750;font-size:11px}
+.pj-lead-invite .pj-lead-dismiss,.pj-lead-actions .pj-lead-dismiss{background:transparent;color:#c3aaa0;border:1px solid rgba(255,255,255,.12)}
+.pj-lead-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.pj-lead-card-head,.pj-lead-card>p,.pj-lead-actions,.pj-lead-card label:nth-of-type(n+4){grid-column:1/-1}
+.pj-lead-card-head{display:flex;align-items:center;justify-content:space-between}.pj-lead-card-head span{font-size:9px;color:#ffbd82;text-transform:uppercase;letter-spacing:.14em}
+.pj-lead-card label{display:grid;gap:5px;color:#d6c4ba;font-size:10px}
+.pj-lead-card input,.pj-lead-card select,.pj-lead-card textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:10px;background:rgba(255,255,255,.045);color:#fff1e7;font:inherit;font-size:12px}
+.pj-lead-card select option{background:#18151d;color:#fff}.pj-lead-card [role=alert]{grid-column:1/-1;margin:0;color:#ffb3a4;font-size:11px}
+.pj-lead-actions{display:flex;gap:8px;flex-wrap:wrap}.pj-lead-saved{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;line-height:1.5}
+@media(max-width:540px){.pj-lead-card{grid-template-columns:1fr}.pj-lead-card label{grid-column:1/-1}.pj-lead-saved{align-items:flex-start;flex-direction:column}}
