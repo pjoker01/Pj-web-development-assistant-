@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { prewarmVoice } from '@todoforai/voiceloop';
 import { createPJVoiceSession } from './assistant/voice/pj-voice-agent';
 
 import { ArrowLeft, ArrowUp, AudioLines, BriefcaseBusiness, CheckCircle2, ChevronDown, Mic, MicOff, PhoneOff, ShieldCheck, Sparkles, Volume2, X } from 'lucide-react';
 import './PJSunset.css';
-import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest } from './assistant/api/assistant-api';
+import { getConsultationAvailability, sendAssistantMessage, submitConsultationRequest, transcribeAssistantAudio } from './assistant/api/assistant-api';
 
 type Slot = { start: string; end: string; available: boolean };
 type ChatLine = { id: number; role: 'user' | 'agent'; text: string };
@@ -29,7 +28,6 @@ export default function PJAssistant() {
   const voiceSilenceFollowupSentRef = useRef(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [intro, setIntro] = useState(true);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [status, setStatus] = useState('Ready when you are');
   const [messages, setMessages] = useState<ChatLine[]>([{ id: 1, role: 'agent', text: WELCOME_MESSAGE }]);
@@ -38,7 +36,11 @@ export default function PJAssistant() {
   const [isSending, setIsSending] = useState(false);
   const [textMode, setTextMode] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
-  const speechRecognitionRef = useRef<any>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<BlobPart[]>([]);
+  const recordingTimeoutRef = useRef<number | null>(null);
   const [error, setError] = useState('');
   const [bookingOpen, setBookingOpen] = useState(false);
   const [date, setDate] = useState(localDate());
@@ -56,7 +58,6 @@ export default function PJAssistant() {
   const [bookingMessage, setBookingMessage] = useState('');
   const [bookingError, setBookingError] = useState('');
 
-  useEffect(() => { const timer = window.setTimeout(() => setIntro(false), 5000); return () => window.clearTimeout(timer); }, []);
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages]);
   useEffect(() => {
     let cancelled = false;
@@ -65,15 +66,18 @@ export default function PJAssistant() {
       .then(availableSlots => { if (!cancelled) setSlots(availableSlots); })
       .catch(error => { if (!cancelled) setBookingError(error.message || 'Unable to load availability.'); });
     return () => { cancelled = true; };
-  }, [date]);
+  }, [date, bookingOpen]);
   useEffect(() => {
     document.title = 'PJ Assistant — Talk with PJ';
-    try { prewarmVoice(); } catch { /* Voice model warmup is best-effort. */ }
     return () => {
       const agent = voiceAgentRef.current;
       voiceAgentRef.current = null;
       try { agent?.destroy(); } catch { /* Voice session may already be closed. */ }
       if (voiceSilenceTimerRef.current !== null) window.clearTimeout(voiceSilenceTimerRef.current);
+      if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
+      try { if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop(); } catch { /* Recorder may already be stopped. */ }
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current = null;
     };
   }, []);
 
@@ -84,11 +88,12 @@ export default function PJAssistant() {
 
   const switchToLive = async () => {
     if (voiceAgentRef.current || mode === 'connecting') return;
-    // Dictation and Live Talk must never compete for the same microphone.
-    if (isDictating) {
-      try { speechRecognitionRef.current?.stop(); } catch { /* Recognition may already have ended. */ }
-      speechRecognitionRef.current = null;
-      setIsDictating(false);
+    // A recording must finish before Live Talk can take ownership of the microphone.
+    if (isDictating || isTranscribing) {
+      const recorder = mediaRecorderRef.current;
+      if (recorder?.state === 'recording') recorder.stop();
+      setError('Finish the voice recording first, then tap Live Talk.');
+      return;
     }
     const BrowserSpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!BrowserSpeechRecognition) {
@@ -195,39 +200,86 @@ export default function PJAssistant() {
     window.setTimeout(() => inputRef.current?.focus(), 150);
   };
 
-  const toggleDictation = () => {
+  const toggleDictation = async () => {
     if (isDictating) {
-      try { speechRecognitionRef.current?.stop(); } catch { /* Already stopped. */ }
-      setIsDictating(false);
+      try {
+        if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      } catch {
+        setError('The recording could not be stopped. Please try again.');
+      }
       return;
     }
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError('Voice typing is not supported in this browser. Try your phone keyboard microphone instead.');
+    if (isTranscribing) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Audio recording is not supported in this browser. Please use Chrome or type your message.');
       return;
     }
+
+    setError('');
     try {
-      const recognition = new SpeechRecognition();
-      speechRecognitionRef.current = recognition;
-      recognition.lang = navigator.language || 'en-ZA';
-      recognition.interimResults = true;
-      recognition.continuous = false;
-      recognition.onstart = () => { setIsDictating(true); setError(''); };
-      recognition.onresult = (event: any) => {
-        let spoken = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) spoken += event.results[i][0]?.transcript || '';
-        if (spoken.trim()) setDraft(previous => (previous ? previous + ' ' : '') + spoken.trim());
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const supportedTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+      const mimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recordingStreamRef.current = stream;
+      recordingChunksRef.current = [];
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = event => {
+        if (event.data?.size) recordingChunksRef.current.push(event.data);
       };
-      recognition.onerror = (event: any) => {
+      recorder.onerror = () => {
+        setError('The microphone recording stopped unexpectedly. Please try again.');
+        recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
         setIsDictating(false);
-        if (event?.error !== 'no-speech' && event?.error !== 'aborted') setError('Microphone typing could not start. Check browser microphone permission.');
       };
-      recognition.onend = () => setIsDictating(false);
-      recognition.start();
+      recorder.onstop = async () => {
+        if (recordingTimeoutRef.current !== null) window.clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
+        const audio = new Blob(recordingChunksRef.current, { type: recorder.mimeType || mimeType || 'audio/webm' });
+        recordingChunksRef.current = [];
+        recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setIsDictating(false);
+
+        if (!audio.size) {
+          setError('I did not receive any audio. Please try recording again.');
+          return;
+        }
+        setIsTranscribing(true);
+        setStatus('Transcribing your voice message…');
+        try {
+          const transcript = await transcribeAssistantAudio(audio);
+          setDraft(previous => (previous ? previous + ' ' : '') + transcript);
+          setStatus('Ready for your message');
+          inputRef.current?.focus();
+        } catch (err: any) {
+          setError(err?.message || 'Your recording could not be transcribed. Please try again or type your message.');
+          setStatus('Ready for your message');
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      recorder.start(250);
       setIsDictating(true);
-    } catch {
+      setStatus('Recording — tap the microphone again to finish');
+      recordingTimeoutRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      }, 30000);
+    } catch (err: any) {
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current = null;
+      mediaRecorderRef.current = null;
       setIsDictating(false);
-      setError('Microphone typing could not start. Check browser microphone permission.');
+      setError(/not.?allowed|permission|denied/i.test(err?.message || '')
+        ? 'Microphone access was blocked. In Chrome, open Site settings for assistant.pjwebdev.online, allow Microphone, then try again.'
+        : err?.message || 'The microphone could not start. Check browser permission and try again.');
     }
   };
 
@@ -256,13 +308,6 @@ export default function PJAssistant() {
   };
 
   return <main className="pj-live-shell">
-    {intro && <div className="pj-intro" role="status" aria-label="Introducing PJ Assistant">
-      <button className="pj-skip" onClick={() => setIntro(false)}>Skip intro <ArrowUp size={12} style={{ transform: 'rotate(45deg)', display: 'inline' }} /></button>
-      <div className="pj-intro-orb"><SunsetOrb mode="speaking" /></div>
-      <h2>Meet <span style={{ color: '#ffb978' }}>PJ Assistant</span></h2>
-      <p>Your ideas, your voice. Let's bring them to life.</p>
-      <div className="pj-intro-steps"><span className="pj-intro-step"><Mic size={13} /> Speak naturally</span><span className="pj-intro-step"><Volume2 size={13} /> Hear your answer</span><span className="pj-intro-step"><Sparkles size={13} /> Build your next idea</span></div>
-    </div>}
     <header className="pj-topbar">
       <a className="pj-brand" href="https://pjwebdev.online" aria-label="PJ Web Development home"><img src="/pj-web-development-logo.webp" alt="" /><span>PJ <span style={{ color: '#ffb978' }}>ASSISTANT</span></span></a>
       <div className="pj-top-actions"><button className="pj-quiet-button" onClick={() => setBookingOpen(true)}><BriefcaseBusiness size={14} /> Send Your Project</button><a className="pj-quiet-button" href="https://pjwebdev.online" aria-label="Visit PJ Web Development"><ArrowLeft size={14} /> Website</a></div>
@@ -287,6 +332,8 @@ export default function PJAssistant() {
       </> : <>
         <div className="pj-chat-window pj-chat-window-clean" aria-live="polite" aria-relevant="additions text">
           {messages.map(line => <div key={line.id} className={'pj-chat-message ' + line.role}><span>{line.role === 'user' ? 'You' : 'PJ Assistant'}</span><p>{line.text}</p></div>)}
+          {isSending && <div className="pj-chat-message agent pj-chat-thinking"><span>PJ Assistant</span><p>Thinking…</p></div>}
+          {isTranscribing && <div className="pj-chat-message agent pj-chat-thinking"><span>PJ Assistant</span><p>Transcribing your voice message…</p></div>}
           <div ref={transcriptEndRef} />
         </div>
         {error && <div className="pj-error" role="alert">
@@ -296,9 +343,9 @@ export default function PJAssistant() {
         <div className="pj-chat-compose">
           <form className="pj-text-entry pj-chat-input-row" onSubmit={sendText}>
             <input ref={inputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder="Message PJ Assistant…" aria-label="Message PJ Assistant" maxLength={2000} />
-            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} aria-label={isDictating ? 'Stop voice typing' : 'Dictate a message'} title={isDictating ? 'Stop voice typing' : 'Dictate a message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
+            <button className={'pj-icon-action pj-dictation-button' + (isDictating ? ' is-active' : '')} type="button" onClick={toggleDictation} disabled={isTranscribing} aria-label={isDictating ? 'Stop recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'} title={isDictating ? 'Tap to finish recording' : isTranscribing ? 'Transcribing recording' : 'Record a voice message'}>{isDictating ? <MicOff size={17} /> : <Mic size={17} />}</button>
             <button className="pj-icon-action pj-inline-live" type="button" onClick={switchToLive} aria-label="Start Live Talk" title="Start Live Talk"><AudioLines size={18} /></button>
-            <button className="pj-send" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp size={18} /></button>
+            <button className="pj-send" type="submit" disabled={!draft.trim() || isSending || isTranscribing} aria-label="Send message"><ArrowUp size={18} /></button>
           </form>
           <p className="pj-chat-note">AI assistant · Don't share passwords or payment details.</p>
         </div>
