@@ -321,3 +321,27 @@
 .pj-live-view .orb-stage.orb-listening .sun-orb::before{animation-duration:9s;filter:blur(20px);opacity:1}
 .pj-live-view .orb-stage.orb-speaking .sun-orb::before{animation-duration:4s;filter:blur(24px);opacity:1}
 @media(prefers-reduced-motion:reduce){.sun-orb::before{animation:none!important}}
+
+
+/* PJ Live: subtle nebula cloud, rising transcript and a richer starfield. */
+.pj-live-view::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.82;background-image:
+radial-gradient(1px 1px at 7% 13%,rgba(255,235,205,.82) 50%,transparent 100%),
+radial-gradient(1px 1px at 18% 29%,rgba(255,255,255,.68) 50%,transparent 100%),
+radial-gradient(1.5px 1.5px at 83% 17%,rgba(255,218,177,.8) 50%,transparent 100%),
+radial-gradient(1px 1px at 74% 39%,rgba(255,255,255,.65) 50%,transparent 100%),
+radial-gradient(1px 1px at 12% 57%,rgba(255,214,179,.72) 50%,transparent 100%),
+radial-gradient(1px 1px at 91% 66%,rgba(255,255,255,.72) 50%,transparent 100%),
+radial-gradient(1.5px 1.5px at 32% 79%,rgba(255,222,187,.7) 50%,transparent 100%),
+radial-gradient(1px 1px at 62% 88%,rgba(255,255,255,.62) 50%,transparent 100%),
+radial-gradient(ellipse at 50% 66%,rgba(103,74,111,.13),transparent 42%),
+radial-gradient(ellipse at 50% 92%,rgba(255,161,111,.08),transparent 34%)}
+.pj-live-cloud{position:relative;isolation:isolate;overflow:hidden;border-radius:26px;padding:18px 14px 14px!important;background:radial-gradient(ellipse at 50% 100%,rgba(255,190,151,.12),transparent 65%),linear-gradient(180deg,transparent,rgba(20,18,28,.34))}
+.pj-live-cloud:before,.pj-live-cloud:after{content:"";position:absolute;z-index:-1;pointer-events:none;left:-12%;width:124%;height:44%;border-radius:50%;filter:blur(24px);opacity:.5}
+.pj-live-cloud:before{bottom:-22%;background:radial-gradient(ellipse,rgba(218,192,220,.19),rgba(255,191,157,.11) 42%,transparent 72%);animation:pj-cloud-breathe 7s ease-in-out infinite}
+.pj-live-cloud:after{bottom:-30%;left:12%;background:radial-gradient(ellipse,rgba(255,213,184,.13),rgba(135,128,177,.1) 48%,transparent 74%);animation:pj-cloud-drift 13s ease-in-out infinite alternate}
+.pj-live-cloud .pj-live-interim{position:relative;animation:pj-words-rise 1.8s ease-out both;text-shadow:0 0 18px rgba(255,193,150,.22)}
+@keyframes pj-words-rise{0%{opacity:0;transform:translateY(15px);filter:blur(7px)}35%{opacity:.8;filter:blur(1px)}100%{opacity:.72;transform:translateY(-5px);filter:blur(0)}}
+@keyframes pj-cloud-breathe{0%,100%{transform:translate3d(-2%,0,0) scale(.96);opacity:.34}50%{transform:translate3d(2%,-8px,0) scale(1.04);opacity:.62}}
+@keyframes pj-cloud-drift{from{transform:translate3d(3%,0,0) scale(1)}to{transform:translate3d(-5%,-5px,0) scale(1.08)}}
+.pj-live-view .pj-live-status{display:none}
+@media(prefers-reduced-motion:reduce){.pj-live-cloud:before,.pj-live-cloud:after,.pj-live-cloud .pj-live-interim{animation:none!important}}
