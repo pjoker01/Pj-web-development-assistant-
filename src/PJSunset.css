@@ -246,3 +246,17 @@
   border-color: rgba(255, 221, 163, .88);
   box-shadow: 0 0 28px rgba(255, 171, 99, .62), inset 0 0 22px rgba(255, 192, 119, .22);
 }
+
+
+/* Refined project enquiry sheet: a single calm, premium panel rather than nested boxes. */
+.pj-booking-panel{width:min(100%,660px);max-height:90svh;padding:clamp(18px,3vw,30px);border:1px solid rgba(255,184,121,.32);border-radius:28px;background:radial-gradient(ellipse at 90% 0%,rgba(255,150,89,.11),transparent 38%),linear-gradient(150deg,#17131a 0%,#0e0d13 72%);box-shadow:0 32px 100px rgba(0,0,0,.68),inset 0 1px rgba(255,255,255,.045)}
+.pj-booking-panel form{gap:13px!important}
+.pj-booking-panel label{gap:8px;color:#e5d5c9;font-size:11px;font-weight:700;letter-spacing:.015em}
+.pj-booking-panel input,.pj-booking-panel select,.pj-booking-panel textarea{min-height:44px;border:1px solid rgba(255,255,255,.12);border-radius:13px;background:rgba(5,6,11,.72);color:#fff7ef;padding:12px 13px;font-size:12px;transition:border-color .18s,box-shadow .18s,background .18s}
+.pj-booking-panel input:focus,.pj-booking-panel select:focus,.pj-booking-panel textarea:focus{border-color:rgba(255,184,121,.72);background:#09090f;box-shadow:0 0 0 3px rgba(255,164,103,.09)}
+.pj-booking-panel textarea{resize:vertical;min-height:82px}
+.pj-booking-submit{min-height:48px;border-radius:14px;background:linear-gradient(115deg,#ffd39a,#ff9b63 58%,#ed704e);box-shadow:0 10px 28px rgba(255,131,75,.14);font-size:12px;letter-spacing:.015em}
+.pj-booking-submit:hover:not(:disabled){filter:brightness(1.05);transform:translateY(-1px)}
+.pj-chat-thinking p{color:#ffcb9d!important}
+.pj-dictation-button:disabled{opacity:.55;cursor:wait}
+@media(max-width:480px){.pj-booking-backdrop{padding:8px}.pj-booking-panel{max-height:94svh;border-radius:22px;padding:17px}.pj-booking-panel form{grid-template-columns:1fr!important}}
