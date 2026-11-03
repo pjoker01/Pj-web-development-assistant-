@@ -53,6 +53,47 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
   let interim = '';
   let history: AssistantHistoryItem[] = [...(initialHistory || [])].slice(-20);
   let turnController: AbortController | null = null;
+  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let talkbackCount = 0;
+  const MAX_TALKBACKS = 2;
+  const SILENCE_MS = 22000;
+
+  const clearSilenceTimer = () => {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer = null;
+  };
+
+  const chooseLocalTalkback = () => {
+    const context = history.slice(-8).map(item => item.content).join(' ').toLowerCase();
+    if (/online store|e-?commerce|product|cart|checkout|payment|shipping/.test(context)) {
+      return 'No rush. We can take the store one step at a time. What kind of products are you thinking of selling?';
+    }
+    if (/website|web site|homepage|pages|design|business site/.test(context)) {
+      return 'Take your time. I’m here when you’re ready. What would you most like your website to help your customers do?';
+    }
+    if (/price|pricing|cost|budget|quote/.test(context)) {
+      return 'Just checking in. Would it help if I explained the options and what affects the price?';
+    }
+    if (/assistant|chatbot|ai chat|automate/.test(context)) {
+      return 'I’m still here. What would you like your assistant to help your customers with first?';
+    }
+    if (/contact|email|phone|whatsapp|name/.test(context)) {
+      return 'No pressure. You can carry on whenever you’re ready, and I can help with the next step.';
+    }
+    return 'Just checking in. Are you still with me, or would you like a moment to think?';
+  };
+
+  const scheduleSilenceCheck = () => {
+    clearSilenceTimer();
+    if (!active || destroyed || talkbackCount >= MAX_TALKBACKS) return;
+    silenceTimer = setTimeout(() => {
+      silenceTimer = null;
+      if (!active || destroyed || speaking || thinking || !listening || talkbackCount >= MAX_TALKBACKS) return;
+      talkbackCount += 1;
+      stopRecognition();
+      speak(chooseLocalTalkback());
+    }, SILENCE_MS);
+  };
 
   const emit = (type: string, data: Record<string, unknown> = {}) => onEvent({ type, ...data });
   const state = (value: 'listening' | 'thinking' | 'speaking' | 'idle') => emit('state', { state: value });
@@ -70,6 +111,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
       recognition.start();
       listening = true;
       state('listening');
+      if (!silenceTimer) scheduleSilenceCheck();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The microphone could not start.';
       emit('error', { error: new Error(message) });
@@ -128,6 +170,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
       emit('lead-required', { message: 'Please add your contact details so PJ can follow up with you.' });
       return false;
     }
+    clearSilenceTimer();
     stopRecognition();
     thinking = true;
     state('thinking');
@@ -178,6 +221,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
         else interimText += transcript;
       }
       interim = interimText;
+      if (finalText.trim() || interimText.trim()) scheduleSilenceCheck();
       emit('stt', { text: [finalText, interimText].filter(Boolean).join(' ').trim(), turnComplete: Boolean(finalText.trim()) });
       if (finalText.trim()) void answer(finalText.trim());
     };
@@ -206,6 +250,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
     listening = false;
     turnController?.abort();
     turnController = null;
+    clearSilenceTimer();
     try { recognition?.abort?.(); recognition?.stop(); } catch { /* Already closed. */ }
     recognition = null;
     try { if (typeof window !== 'undefined') window.speechSynthesis?.cancel(); } catch { /* No active utterance. */ }
@@ -231,6 +276,8 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
     notify(message: string) {
       if (!active || destroyed) return Promise.reject(new Error('PJ Live Talk is not active.'));
       if (message === '[PJ_GREETING]') {
+        clearSilenceTimer();
+        talkbackCount = 0;
         stopRecognition();
         emit('assistant', { text: greeting, full: greeting });
         speak(greeting);
