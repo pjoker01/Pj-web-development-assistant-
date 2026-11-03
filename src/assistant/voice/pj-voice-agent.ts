@@ -41,7 +41,7 @@ function getRecognitionConstructor(): RecognitionConstructor | null {
  * deliberately half-duplex: listen -> think -> speak -> listen. This avoids
  * feeding PJ's own speaker output back into Android's microphone recognizer.
  */
-export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canContinueWithoutLead }: PJVoiceAgentOptions) {
+export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canContinueWithoutLead, initialHistory }: PJVoiceAgentOptions) {
   let recognition: RecognitionLike | null = null;
   let active = false;
   let destroyed = false;
@@ -50,7 +50,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
   let thinking = false;
   let restartRequested = false;
   let interim = '';
-  let history: AssistantHistoryItem[] = [];
+  let history: AssistantHistoryItem[] = [...(initialHistory || [])].slice(-20);
   let turnController: AbortController | null = null;
 
   const emit = (type: string, data: Record<string, unknown> = {}) => onEvent({ type, ...data });
