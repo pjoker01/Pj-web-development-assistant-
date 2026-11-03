@@ -110,6 +110,7 @@ export default function PJAssistant() {
   const [reviewPromptVisible, setReviewPromptVisible] = useState(false);
   const [leadConfirmed, setLeadConfirmed] = useState(false);
   const isQualifiedLeadIntent = (value: string) => /\b(i want|i need|looking for|interested in|want to build|need a|build me|create me|make me|develop|redesign|quote for|quotation for|pricing for|book a|consultation|speak to pj|contact pj|talk to pj|get started)\b/i.test(value);
+  const isLeadWrapUpIntent = (value: string) => /\b(i'?m done|i am done|that'?s all|that is all|finish|wrap up|review my details|review the details|send it|submit it|i'?m finished)\b/i.test(value);
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
   useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 112) + 'px'; }, [draft, textMode, mode]);
@@ -151,7 +152,10 @@ export default function PJAssistant() {
   const addLine = (role: ChatLine['role'], text: string) => {
     const clean = text?.trim();
     if (clean) {
-      if (role === 'user' && leadIdRef.current) turnsSinceLeadSaveRef.current += 1;
+      if (role === 'user' && leadIdRef.current) {
+        turnsSinceLeadSaveRef.current += 1;
+        if (isLeadWrapUpIntent(clean) && !leadConfirmed) setReviewPromptVisible(true);
+      }
       setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
       if (role === 'user' && !leadIdRef.current && isQualifiedLeadIntent(clean)) setLeadPromptVisible(true);
     }
@@ -283,7 +287,7 @@ export default function PJAssistant() {
     event.preventDefault(); if (leadSaving) return; setLeadSaving(true); setLeadError('');
     try {
       const result = await submitPJAssistantLead({ leadId: leadId || undefined, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'draft' });
-      setLeadId(result.leadId); leadIdRef.current = result.leadId; leadCaptureRequiredRef.current = false; setLeadFormOpen(false); setLeadPromptVisible(false);
+      setLeadId(result.leadId); leadIdRef.current = result.leadId; leadCaptureRequiredRef.current = false; setLeadFormOpen(false); setLeadPromptVisible(false); setError('');
       turnsSinceLeadSaveRef.current = 0; setReviewPromptVisible(false); setLeadConfirmed(false);
       setLeadSavedMessage('Your contact details are safely saved. We can keep discussing your project, then review everything together.');
       addLine('agent', 'Thanks — I’ve saved your contact details and project outline. Let’s talk through the details, and when you’re ready we can review the full summary together.');
