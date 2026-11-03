@@ -214,12 +214,14 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
       // Unlock speech output from the user's tap before any asynchronous work.
       window.speechSynthesis.getVoices();
       window.speechSynthesis.cancel();
-      startRecognition();
+      // Recognition intentionally stays stopped during the welcome utterance.
+      // speak() restarts it from onend/onerror, preventing startup echo capture.
     },
     destroy,
     notify(message: string) {
       if (!active || destroyed) return Promise.reject(new Error('PJ Live Talk is not active.'));
       if (message === '[PJ_GREETING]') {
+        stopRecognition();
         emit('assistant', { text: greeting, full: greeting });
         speak(greeting);
         return Promise.resolve();
