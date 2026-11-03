@@ -5,6 +5,7 @@ export type PJVoiceAgentOptions = {
   setSessionId: (sessionId: string) => void;
   onEvent: (event: any) => void;
   canContinueWithoutLead?: () => boolean;
+  initialHistory?: AssistantHistoryItem[];
 };
 
 type SpeechRecognitionResultLike = { isFinal: boolean; [index: number]: { transcript: string } };
