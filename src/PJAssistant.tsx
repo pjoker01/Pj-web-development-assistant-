@@ -205,6 +205,7 @@ export default function PJAssistant() {
           const text = event.turnComplete ? event.text : [event.committed || '', event.text || ''].join(' ').trim();
           setLiveDraft(text || '');
           if (event.turnComplete && text.trim()) {
+            pendingLeadIntentRef.current = isQualifiedLeadIntent(text.trim());
             addLine('user', text.trim());
             setLiveDraft('');
           }
