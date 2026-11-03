@@ -166,7 +166,7 @@ export default function PJAssistant() {
     }
     setError('');
     setTextMode(true); setDraft(''); setLiveDraft(''); setLiveAssistantDraft('');
-    setMessages(previous => [...previous.filter(line => line.id !== 1), { id: nextMessageId.current++, role: 'agent', text: 'Hi, I’m PJ. What can I help you with?' }]);
+    // The voice agent owns the single welcome message; do not also insert a UI greeting.
     liveActiveRef.current = true;
     lastVoiceStateRef.current = 'connecting';
     liveAssistantTextRef.current = '';
@@ -202,7 +202,13 @@ export default function PJAssistant() {
         } else if (event.type === 'level') {
           setVoiceLevel(Math.max(0, Math.min(1, Number(event.level) || 0)));
         } else if (event.type === 'error') {
-          setError(event.error?.message || String(event.error || 'PJ Live encountered a voice error.'));
+          const message = event.error?.message || String(event.error || 'PJ Live encountered a voice error.');
+          setError(message);
+          // Never leave the orb claiming to speak/listen after the recognizer has failed.
+          lastVoiceStateRef.current = 'error';
+          setMode('idle');
+          setStatus('Voice connection needs attention — close Live Talk and reconnect.');
+          setVoiceLevel(0);
         }
       },
     });
