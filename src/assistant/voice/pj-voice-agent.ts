@@ -135,7 +135,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
     turnController = controller;
     try {
       const body = await sendAssistantMessage({
-        message,
+        message: message + "\n\nVoice style: Reply naturally and briefly, in no more than two short sentences unless the visitor asks for detail. Avoid long paragraphs and ask just one useful follow-up question when appropriate.",
         sessionId: getSessionId(),
         history: history.slice(-20),
         signal: controller.signal,
