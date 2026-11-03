@@ -91,7 +91,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-ZA';
     utterance.rate = 0.98;
-    utterance.pitch = 1;
+    utterance.pitch = 0.82;
     const voices = window.speechSynthesis.getVoices();
     // Prefer an explicitly masculine English voice; voice gender metadata is
     // not standardised, so use common masculine voice names as the signal.
