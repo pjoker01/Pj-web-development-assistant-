@@ -4,6 +4,7 @@ export type PJVoiceAgentOptions = {
   getSessionId: () => string;
   setSessionId: (sessionId: string) => void;
   onEvent: (event: any) => void;
+  canContinueWithoutLead?: () => boolean;
 };
 
 type SpeechRecognitionResultLike = { isFinal: boolean; [index: number]: { transcript: string } };
@@ -20,10 +21,12 @@ const greeting = 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What a
 const cleanForSpeech = (value: string) => value
   .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
   .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  .replace(/\|/g, ', ')
   .replace(/^\s*[-*+]\s+/gm, '')
+  .replace(/^\s*\d+[.)]\s+/gm, '')
+  .replace(/\|/g, ', ')
   .replace(/\*\*|__|[*_~#`]/g, '')
-  .replace(/[—–]/g, ', ')
+  .replace(/[—–-]{2,}/g, ', ')
+  .replace(/\s+-\s+/g, ', ')
   .replace(/\s{2,}/g, ' ')
   .trim();
 
@@ -38,7 +41,7 @@ function getRecognitionConstructor(): RecognitionConstructor | null {
  * deliberately half-duplex: listen -> think -> speak -> listen. This avoids
  * feeding PJ's own speaker output back into Android's microphone recognizer.
  */
-export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVoiceAgentOptions) {
+export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canContinueWithoutLead }: PJVoiceAgentOptions) {
   let recognition: RecognitionLike | null = null;
   let active = false;
   let destroyed = false;
@@ -111,6 +114,10 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
   const answer = async (incoming: string) => {
     const message = incoming.trim();
     if (!message || !active || destroyed) return false;
+    if (canContinueWithoutLead && !canContinueWithoutLead()) {
+      emit('lead-required', { message: 'Please add your contact details so PJ can follow up with you.' });
+      return false;
+    }
     stopRecognition();
     thinking = true;
     state('thinking');
@@ -205,6 +212,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
       recognition = createRecognition();
       active = true;
       // Unlock speech output from the user's tap before any asynchronous work.
+      window.speechSynthesis.getVoices();
       window.speechSynthesis.cancel();
       startRecognition();
     },
