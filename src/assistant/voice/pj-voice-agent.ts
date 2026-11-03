@@ -93,9 +93,18 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent, canCon
     utterance.rate = 0.98;
     utterance.pitch = 1;
     const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(item => /^en[-_]ZA/i.test(item.lang))
-      || voices.find(item => /^en[-_]GB/i.test(item.lang))
-      || voices.find(item => /^en/i.test(item.lang));
+    // Prefer an explicitly masculine English voice; voice gender metadata is
+    // not standardised, so use common masculine voice names as the signal.
+    const maleName = /\\b(daniel|david|george|james|oliver|ryan|thomas|arthur|alex|fred|aaron|guy|liam|matthew|andrew|mark|tom|lee|rishi|brian|male)\\b/i;
+    const femaleName = /\\b(female|zira|samantha|victoria|karen|susan|hazel|ava|emma|sara|aria|jenny|sonia|libby|natasha)\\b/i;
+    const english = voices.filter(item => /^en/i.test(item.lang));
+    const voice = english.find(item => /^en[-_]ZA/i.test(item.lang) && maleName.test(item.name) && !femaleName.test(item.name))
+      || english.find(item => /^en[-_]GB/i.test(item.lang) && maleName.test(item.name) && !femaleName.test(item.name))
+      || english.find(item => /^en[-_]US/i.test(item.lang) && maleName.test(item.name) && !femaleName.test(item.name))
+      || english.find(item => maleName.test(item.name) && !femaleName.test(item.name))
+      || english.find(item => /^en[-_]ZA/i.test(item.lang) && !femaleName.test(item.name))
+      || english.find(item => /^en[-_]GB/i.test(item.lang) && !femaleName.test(item.name))
+      || english.find(item => !femaleName.test(item.name));
     if (voice) utterance.voice = voice;
     utterance.onend = () => {
       speaking = false;
