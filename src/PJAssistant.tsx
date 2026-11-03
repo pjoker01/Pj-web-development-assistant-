@@ -165,6 +165,8 @@ export default function PJAssistant() {
       return;
     }
     setError('');
+    // Live Talk speaks its own greeting; remove the static chat greeting so it is not shown twice.
+    setMessages([]);
     setTextMode(true); setDraft(''); setLiveDraft(''); setLiveAssistantDraft('');
     // The voice agent owns the single welcome message; do not also insert a UI greeting.
     liveActiveRef.current = true;
