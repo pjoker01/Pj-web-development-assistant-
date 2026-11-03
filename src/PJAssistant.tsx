@@ -104,7 +104,9 @@ export default function PJAssistant() {
   const [leadError, setLeadError] = useState('');
   const [leadSavedMessage, setLeadSavedMessage] = useState('');
   const leadCaptureRequiredRef = useRef(false);
+  const pendingLeadIntentRef = useRef(false);
   const leadIdRef = useRef('');
+  const isQualifiedLeadIntent = (value: string) => /\b(i want|i need|looking for|interested in|want to build|need a|build me|create me|make me|develop|redesign|quote for|quotation for|pricing for|book a|consultation|speak to pj|contact pj|talk to pj|get started)\b/i.test(value);
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
   useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 112) + 'px'; }, [draft, textMode, mode]);
@@ -147,7 +149,7 @@ export default function PJAssistant() {
     const clean = text?.trim();
     if (clean) {
       setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
-      if (role === 'user' && !leadId && /(i need|i want|looking for|interested in|want to build|need a|website|online store|chatbot|voice assistant|web app|redesign|quote|quotation|pricing)/i.test(clean)) setLeadPromptVisible(true);
+      if (role === 'user' && !leadIdRef.current && isQualifiedLeadIntent(clean)) setLeadPromptVisible(true);
     }
   };
 
@@ -159,6 +161,7 @@ export default function PJAssistant() {
       setError('Please add your contact details first so PJ can follow up with you.');
       return;
     }
+    pendingLeadIntentRef.current = isQualifiedLeadIntent(text);
     addLine('user', text);
     setLiveDraft('');
     const accepted = voiceSessionRef.current.sendUserText(text);
@@ -174,6 +177,8 @@ export default function PJAssistant() {
     setError('');
     // Live Talk speaks its own greeting; remove the static chat greeting so it is not shown twice.
     setMessages([]);
+    setLeadFormOpen(false);
+    if (!leadCaptureRequiredRef.current) setLeadPromptVisible(false);
     setTextMode(true); setDraft(''); setLiveDraft(''); setLiveAssistantDraft('');
     // The voice agent owns the single welcome message; do not also insert a UI greeting.
     liveActiveRef.current = true;
@@ -209,10 +214,11 @@ export default function PJAssistant() {
           setError('Please add your contact details before continuing this project enquiry.');
         } else if (event.type === 'assistant') {
           const text = String(event.text || event.full || '').trim();
-          if (!leadIdRef.current && /(website|online store|ecommerce|e-commerce|web app|chatbot|assistant|consultation|project|quote|quotation|build|redesign|call|meeting)/i.test(text)) {
+          if (!leadIdRef.current && pendingLeadIntentRef.current) {
             leadCaptureRequiredRef.current = true;
             setLeadPromptVisible(true);
             setLeadFormOpen(true);
+            pendingLeadIntentRef.current = false;
           }
           if (text) {
             liveAssistantTextRef.current = String(event.full || text).trim();
@@ -305,6 +311,7 @@ export default function PJAssistant() {
       return;
     }
     setIsSending(true); setError('');
+    pendingLeadIntentRef.current = isQualifiedLeadIntent(text);
     addLine('user', text);
     try {
       const body = await sendAssistantMessage({
@@ -313,6 +320,12 @@ export default function PJAssistant() {
       });
       if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply);
+      if (pendingLeadIntentRef.current && !leadIdRef.current) {
+        leadCaptureRequiredRef.current = true;
+        setLeadPromptVisible(true);
+        setLeadFormOpen(true);
+        pendingLeadIntentRef.current = false;
+      }
     } catch (err: any) { setError(err?.message || 'That message could not be sent. Please try again.'); }
     finally { setIsSending(false); }
   };
@@ -450,7 +463,7 @@ export default function PJAssistant() {
           <div ref={transcriptEndRef} />
         </div>
         {leadPromptVisible && !leadId && !leadFormOpen && <div className="pj-lead-invite"><div><strong>Want PJ to follow up on your project?</strong><p>Share a few details and keep chatting. It only takes a moment.</p></div><button type="button" onClick={() => setLeadFormOpen(true)}>Add my details</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadPromptVisible(false)}>Not now</button></div>}
-        {leadFormOpen && <form className="pj-lead-card" onSubmit={saveLeadDraft}><div className="pj-lead-card-head"><strong>Let’s keep your project together</strong><span>Quick enquiry</span></div><label>Your name<input required minLength={2} maxLength={100} value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Full name" /></label><label>Phone or WhatsApp<input required minLength={5} maxLength={40} value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="+27…" /></label><label>Email (optional)<input type="email" maxLength={120} value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="you@example.com" /></label><label>What do you want to build?<input required maxLength={120} value={leadProjectType} onChange={e => setLeadProjectType(e.target.value)} placeholder="Website, online store, AI assistant…" /></label><label>When would you like to start?<select required value={leadTimeframe} onChange={e => setLeadTimeframe(e.target.value)}><option value="">Choose a timeframe</option><option>As soon as possible</option><option>Within 2–4 weeks</option><option>Within 1–3 months</option><option>More than 3 months</option><option>Just exploring</option></select></label><label>Project outline<textarea required minLength={8} maxLength={1500} rows={2} value={leadSummary} onChange={e => setLeadSummary(e.target.value)} placeholder="A few words about what you need…" /></label>{leadError && <p role="alert">{leadError}</p>}<div className="pj-lead-actions"><button type="submit" disabled={leadSaving}>{leadSaving ? "Saving…" : "Save details and continue"}</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadFormOpen(false)}>Not now</button></div></form>}
+        {leadFormOpen && <form className="pj-lead-card pj-lead-dialog" onSubmit={saveLeadDraft}><div className="pj-lead-card-head"><strong>Let’s keep your project together</strong><span>Quick enquiry</span></div><label>Your name<input required minLength={2} maxLength={100} value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Full name" /></label><label>Phone or WhatsApp<input required minLength={5} maxLength={40} value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="+27…" /></label><label>Email (optional)<input type="email" maxLength={120} value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="you@example.com" /></label><label>What do you want to build?<input required maxLength={120} value={leadProjectType} onChange={e => setLeadProjectType(e.target.value)} placeholder="Website, online store, AI assistant…" /></label><label>When would you like to start?<select required value={leadTimeframe} onChange={e => setLeadTimeframe(e.target.value)}><option value="">Choose a timeframe</option><option>As soon as possible</option><option>Within 2–4 weeks</option><option>Within 1–3 months</option><option>More than 3 months</option><option>Just exploring</option></select></label><label>Project outline<textarea required minLength={8} maxLength={1500} rows={2} value={leadSummary} onChange={e => setLeadSummary(e.target.value)} placeholder="A few words about what you need…" /></label>{leadError && <p role="alert">{leadError}</p>}<div className="pj-lead-actions"><button type="submit" disabled={leadSaving}>{leadSaving ? "Saving…" : "Save details and continue"}</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadFormOpen(false)}>Not now</button></div></form>}
         {leadId && !leadReviewOpen && <div className="pj-lead-saved"><span>{leadSavedMessage || "Your contact details are saved."}</span><button type="button" onClick={buildLeadSummary}>Review project summary</button></div>}
         {leadReviewOpen && <div className="pj-lead-card"><div className="pj-lead-card-head"><strong>Review your project brief</strong><span>Final check</span></div><p>Check the details and conversation summary. You can edit the summary before sending it to PJ.</p><label>Project summary<textarea rows={5} value={leadSummary} onChange={e => setLeadSummary(e.target.value)} /></label>{leadError && <p role="alert">{leadError}</p>}<div className="pj-lead-actions"><button type="button" onClick={confirmLead} disabled={leadSaving}>{leadSaving ? "Confirming…" : "Confirm and send to PJ"}</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadReviewOpen(false)}>Keep discussing</button></div></div>}
         {leadPromptVisible && !leadId && !leadFormOpen && <div className="pj-lead-invite"><strong>Would you like PJ to follow up on your project?</strong><button type="button" onClick={() => setLeadFormOpen(true)}>Add contact details</button><button type="button" onClick={() => setLeadPromptVisible(false)}>Not now</button></div>}
@@ -497,6 +510,8 @@ export default function PJAssistant() {
         <footer className="pj-footer"><span>© {new Date().getFullYear()} PJ Web Development</span><span>·</span><button onClick={() => setBookingOpen(true)}>Book a consultation</button></footer>
       </>}
     </section>
+    {mode === 'idle' && leadPromptVisible && !leadId && !leadFormOpen && <div className="pj-lead-invite"><strong>Want PJ to follow up on your project?</strong><button type="button" onClick={() => setLeadFormOpen(true)}>Add contact details</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadPromptVisible(false)}>Not now</button></div>}
+    {mode === 'idle' && leadFormOpen && <div className="pj-lead-backdrop" role="presentation"><form className="pj-lead-card pj-lead-dialog" role="dialog" aria-modal="true" onSubmit={saveLeadDraft}><div className="pj-lead-card-head"><strong>{leadCaptureRequiredRef.current ? 'Contact details required to continue' : 'Optional project follow-up'}</strong><button type="button" className="pj-lead-close" onClick={() => setLeadFormOpen(false)} disabled={leadCaptureRequiredRef.current} aria-label="Close contact form"><X size={17}/></button></div><p>{leadCaptureRequiredRef.current ? 'Please complete these details so PJ can follow up on your project.' : 'You can cancel this for now and continue chatting.'}</p><label>Your name<input required minLength={2} value={leadName} onChange={e => setLeadName(e.target.value)} /></label><label>Phone or WhatsApp<input required minLength={5} value={leadPhone} onChange={e => setLeadPhone(e.target.value)} /></label><label>Email (optional)<input type="email" value={leadEmail} onChange={e => setLeadEmail(e.target.value)} /></label><label>Project type<input required value={leadProjectType} onChange={e => setLeadProjectType(e.target.value)} placeholder="Website, online store, AI assistant…" /></label><label>When would you like to start?<select required value={leadTimeframe} onChange={e => setLeadTimeframe(e.target.value)}><option value="">Choose timeframe</option><option>As soon as possible</option><option>Within 2–4 weeks</option><option>Within 1–3 months</option><option>More than 3 months</option><option>Just exploring</option></select></label><label>Project outline<textarea required minLength={8} value={leadSummary} onChange={e => setLeadSummary(e.target.value)} /></label>{leadError && <p role="alert">{leadError}</p>}<div className="pj-lead-actions"><button type="submit" disabled={leadSaving}>{leadSaving ? 'Saving…' : 'Save details and continue'}</button>{!leadCaptureRequiredRef.current && <button type="button" className="pj-lead-dismiss" onClick={() => {setLeadFormOpen(false);setLeadPromptVisible(false);}}>Cancel for now</button>}</div></form></div>}
     {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
       <section className="pj-booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}><div><p style={{ margin: 0, color: '#ffbd82', fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase' }}>Let's build something</p><h2 id="booking-title" style={{ margin: '7px 0', fontSize: 23, letterSpacing: '-.04em' }}>Send Your Project</h2><p style={{ margin: 0, color: '#b7a7a0', fontSize: 12, lineHeight: 1.7 }}>Tell me the essentials. PJ will review your idea and follow up with the next steps.</p></div><button className="pj-quiet-button" onClick={() => setBookingOpen(false)} aria-label="Close project form"><X size={16} /></button></div>
