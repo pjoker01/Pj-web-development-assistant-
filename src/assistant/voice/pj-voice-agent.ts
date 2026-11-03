@@ -1,5 +1,4 @@
-import { PiperTTS, VoiceAgent, unlockAudio } from '@todoforai/voiceloop';
-import { sendAssistantMessage } from '../api/assistant-api';
+import { sendAssistantMessage, type AssistantHistoryItem } from '../api/assistant-api';
 
 export type PJVoiceAgentOptions = {
   getSessionId: () => string;
@@ -7,92 +6,251 @@ export type PJVoiceAgentOptions = {
   onEvent: (event: any) => void;
 };
 
-/** Speech profile and platform-backed LLM adapter for PJ Live Talk. */
+type SpeechRecognitionResultLike = { isFinal: boolean; [index: number]: { transcript: string } };
+type RecognitionLike = {
+  lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
+  onresult: ((event: { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> }) => void) | null;
+  onerror: ((event: { error?: string; message?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void; stop: () => void; abort?: () => void;
+};
+type RecognitionConstructor = new () => RecognitionLike;
+
+const greeting = 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?';
+const cleanForSpeech = (value: string) => value
+  .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  .replace(/\|/g, ', ')
+  .replace(/^\s*[-*+]\s+/gm, '')
+  .replace(/\*\*|__|[*_~#`]/g, '')
+  .replace(/[—–]/g, ', ')
+  .replace(/\s{2,}/g, ' ')
+  .trim();
+
+function getRecognitionConstructor(): RecognitionConstructor | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as any;
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+/**
+ * PJ-owned, browser-native voice loop. Recognition and speech playback are
+ * deliberately half-duplex: listen -> think -> speak -> listen. This avoids
+ * feeding PJ's own speaker output back into Android's microphone recognizer.
+ */
 export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVoiceAgentOptions) {
-  return new VoiceAgent({
-    sttProvider: 'webspeech',
-    sttLang: 'en-ZA',
-    tts: new PiperTTS('en_US-ryan-medium'),
-    speed: 1.02,
-    bargeInMinChars: 2,
-    keyterms: ['PJ Web Development', 'PJ Assistant', 'Pretoria', 'Sunnyside', 'WhatsApp', 'website', 'ecommerce'],
-    persona: 'You are PJ Assistant, the official spoken assistant for PJ Web Development. Use a warm, confident, relaxed conversational English delivery. Prefer familiar South African wording where natural, but do not claim or imitate an accent the selected voice model does not provide. Keep every spoken reply brief: normally one or two natural sentences, then stop and listen. Never send unsolicited follow-up messages or repeat the greeting. Avoid call-centre delivery, robotic phrasing, exaggerated enthusiasm or long monologues. Use contractions and natural pauses. You are an AI assistant; never claim to be human.',
-    sysmsg: 'This is a live voice conversation on the public PJ Web Development website. Be conversational and helpful. Answer directly, remember the conversation, and ask one relevant follow-up when useful. Keep spoken answers to one or two short sentences unless the visitor asks for detail. Never speak again unless the visitor speaks or sends a message.',
-    llm: async function* (history: any[], _system: string, signal: AbortSignal) {
-      const lastIndex = history.length - 1;
-      const last = history[lastIndex];
-      const lastContent = typeof last?.content === 'string'
-        ? last.content
-        : Array.isArray(last?.content)
-          ? last.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
-          : '';
-      const incoming = String(lastContent || '').trim();
-      if (!incoming) throw new Error('I did not catch that. Please try again.');
-      if (incoming === '[PJ_GREETING]') {
-        yield { text: 'Hey, welcome to PJ Web Development. I’m PJ Assistant. What are you looking to build, improve or figure out?' };
-        return;
-      }
+  let recognition: RecognitionLike | null = null;
+  let active = false;
+  let destroyed = false;
+  let listening = false;
+  let speaking = false;
+  let thinking = false;
+  let restartRequested = false;
+  let interim = '';
+  let history: AssistantHistoryItem[] = [];
+  let turnController: AbortController | null = null;
 
-      const isCheckin = incoming === '[PJ_SILENCE_CHECKIN]';
-      const message = isCheckin
-        ? 'Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question. Do not repeat the opening greeting.'
-        : incoming;
-      const priorHistory = history.slice(0, lastIndex).slice(-20).map((item: any) => ({
-        role: item.role === 'assistant' ? 'assistant' as const : 'user' as const,
-        content: typeof item.content === 'string'
-          ? item.content
-          : Array.isArray(item.content)
-            ? item.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text || '').join(' ')
-            : '',
-      })).filter((item: any) => item.content);
+  const emit = (type: string, data: Record<string, unknown> = {}) => onEvent({ type, ...data });
+  const state = (value: 'listening' | 'thinking' | 'speaking' | 'idle') => emit('state', { state: value });
 
+  const stopRecognition = () => {
+    if (!recognition || !listening) return;
+    listening = false;
+    try { recognition.stop(); } catch { /* Native recognizer may already be stopped. */ }
+  };
+
+  const startRecognition = () => {
+    if (!active || destroyed || speaking || thinking || listening || !recognition) return;
+    interim = '';
+    try {
+      recognition.start();
+      listening = true;
+      state('listening');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The microphone could not start.';
+      emit('error', { error: new Error(message) });
+    }
+  };
+
+  const speak = (rawText: string) => {
+    const text = cleanForSpeech(rawText);
+    if (!text || !active || destroyed) {
+      if (active && !destroyed) startRecognition();
+      return;
+    }
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      emit('error', { error: new Error('Speech playback is not available in this browser. You can still read PJ’s replies and use the text chat.') });
+      startRecognition();
+      return;
+    }
+    speaking = true;
+    state('speaking');
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-ZA';
+    utterance.rate = 0.98;
+    utterance.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(item => /^en[-_]ZA/i.test(item.lang))
+      || voices.find(item => /^en[-_]GB/i.test(item.lang))
+      || voices.find(item => /^en/i.test(item.lang));
+    if (voice) utterance.voice = voice;
+    utterance.onend = () => {
+      speaking = false;
+      if (active && !destroyed) startRecognition();
+      else state('idle');
+    };
+    utterance.onerror = () => {
+      speaking = false;
+      if (active && !destroyed) startRecognition();
+      else state('idle');
+    };
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const answer = async (incoming: string) => {
+    const message = incoming.trim();
+    if (!message || !active || destroyed) return false;
+    stopRecognition();
+    thinking = true;
+    state('thinking');
+    turnController?.abort();
+    const controller = new AbortController();
+    turnController = controller;
+    try {
       const body = await sendAssistantMessage({
         message,
         sessionId: getSessionId(),
-        history: priorHistory,
-        signal,
+        history: history.slice(-20),
+        signal: controller.signal,
       });
+      if (!active || destroyed || controller.signal.aborted) return false;
       if (body.sessionId) setSessionId(body.sessionId);
-      yield { text: body.reply.trim() };
-    },
-    onEvent,
-  });
-}
+      const reply = body.reply.trim();
+      history = [...history, { role: 'user', content: message }, { role: 'assistant', content: reply }].slice(-20);
+      emit('assistant', { text: reply, full: reply });
+      thinking = false;
+      speak(reply);
+      return true;
+    } catch (error) {
+      if (controller.signal.aborted || !active || destroyed) return false;
+      thinking = false;
+      emit('error', { error });
+      startRecognition();
+      return false;
+    } finally {
+      if (turnController === controller) turnController = null;
+    }
+  };
 
-type VoiceAgentLike = Pick<VoiceAgent, 'start' | 'destroy' | 'notify' | 'sendUserText'>;
-type VoiceAgentFactory = (options: PJVoiceAgentOptions) => VoiceAgentLike;
-
-export type PJVoiceSession = ReturnType<typeof createPJVoiceSession>;
-
-/** Owns the one Live Talk microphone session and makes teardown idempotent. */
-export function createPJVoiceSession(
-  options: PJVoiceAgentOptions,
-  agentFactory: VoiceAgentFactory = createPJVoiceAgent,
-  unlockAudioFn: () => void = unlockAudio,
-) {
-  const agent = agentFactory(options);
-  let started = false;
-  let destroyed = false;
+  const createRecognition = () => {
+    const Constructor = getRecognitionConstructor();
+    if (!Constructor) throw new Error('Live Talk needs a browser with built-in speech recognition, such as Chrome on Android. You can still use text chat.');
+    const instance = new Constructor();
+    instance.lang = 'en-ZA';
+    instance.continuous = false;
+    instance.interimResults = true;
+    instance.maxAlternatives = 1;
+    instance.onresult = event => {
+      let finalText = '';
+      let interimText = '';
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result?.[0]?.transcript || '';
+        if (result.isFinal) finalText += transcript;
+        else interimText += transcript;
+      }
+      interim = interimText;
+      emit('stt', { text: [finalText, interimText].filter(Boolean).join(' ').trim(), turnComplete: Boolean(finalText.trim()) });
+      if (finalText.trim()) void answer(finalText.trim());
+    };
+    instance.onerror = event => {
+      listening = false;
+      const reason = event.error || 'unknown';
+      if (reason === 'no-speech' || reason === 'aborted') {
+        if (active && !destroyed && !thinking && !speaking) window.setTimeout(startRecognition, 250);
+        return;
+      }
+      emit('error', { error: new Error(reason === 'not-allowed' || reason === 'service-not-allowed'
+        ? 'Microphone permission is blocked. Allow Microphone for assistant.pjwebdev.online in your browser site settings, then start Live Talk again.'
+        : 'Speech recognition stopped (' + reason + '). Tap End Live and reconnect, or use text chat.') });
+    };
+    instance.onend = () => {
+      listening = false;
+      if (active && !destroyed && !thinking && !speaking) window.setTimeout(startRecognition, 250);
+    };
+    return instance;
+  };
 
   const destroy = () => {
     if (destroyed) return;
     destroyed = true;
-    started = false;
-    try { agent.destroy(); } catch { /* The underlying agent may already be closed. */ }
+    active = false;
+    listening = false;
+    turnController?.abort();
+    turnController = null;
+    try { recognition?.abort?.(); recognition?.stop(); } catch { /* Already closed. */ }
+    recognition = null;
+    try { if (typeof window !== 'undefined') window.speechSynthesis?.cancel(); } catch { /* No active utterance. */ }
+    speaking = false;
+    thinking = false;
+    state('idle');
   };
 
   return {
     async start() {
-      if (started || destroyed) return;
-      // Must execute synchronously in the user's tap before the first await.
-      unlockAudioFn();
-      started = true;
-      try {
-        await agent.start();
-      } catch (error) {
-        destroy();
-        throw error;
+      if (active || destroyed) return;
+      if (typeof window === 'undefined') throw new Error('Live Talk is only available in a browser.');
+      if (!('speechSynthesis' in window)) throw new Error('This browser does not support speech playback. Please use Chrome or text chat.');
+      recognition = createRecognition();
+      active = true;
+      // Unlock speech output from the user's tap before any asynchronous work.
+      window.speechSynthesis.cancel();
+      startRecognition();
+    },
+    destroy,
+    notify(message: string) {
+      if (!active || destroyed) return Promise.reject(new Error('PJ Live Talk is not active.'));
+      if (message === '[PJ_GREETING]') {
+        emit('assistant', { text: greeting, full: greeting });
+        speak(greeting);
+        return Promise.resolve();
       }
+      if (message === '[PJ_SILENCE_CHECKIN]') return answer('Based on our conversation so far, gently check in with the visitor. Ask one short, relevant follow-up question. Do not repeat the opening greeting.').then(() => undefined);
+      return answer(message).then(() => undefined);
+    },
+    sendUserText(message: string) {
+      if (!active || destroyed) return false;
+      void answer(message);
+      return true;
+    },
+  };
+}
+
+type VoiceAgentLike = Pick<ReturnType<typeof createPJVoiceAgent>, 'start' | 'destroy' | 'notify' | 'sendUserText'>;
+type VoiceAgentFactory = (options: PJVoiceAgentOptions) => VoiceAgentLike;
+export type PJVoiceSession = ReturnType<typeof createPJVoiceSession>;
+
+/** Owns the one PJ-native voice session and makes teardown idempotent. */
+export function createPJVoiceSession(
+  options: PJVoiceAgentOptions,
+  agentFactory: VoiceAgentFactory = createPJVoiceAgent,
+) {
+  const agent = agentFactory(options);
+  let started = false;
+  let destroyed = false;
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    started = false;
+    try { agent.destroy(); } catch { /* Already closed. */ }
+  };
+  return {
+    async start() {
+      if (started || destroyed) return;
+      started = true;
+      try { await agent.start(); }
+      catch (error) { destroy(); throw error; }
     },
     destroy,
     notify(message: string) {
