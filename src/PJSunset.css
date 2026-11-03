@@ -469,3 +469,6 @@ opacity:.85;animation:pj-orb-stars 28s linear infinite}
 .pj-lead-dialog .pj-lead-actions{position:sticky;bottom:-1px;padding:12px 0 2px;background:linear-gradient(0deg,rgba(15,16,24,.99),rgba(15,16,24,.92))}
 .pj-lead-dialog .pj-lead-actions button{min-height:42px;cursor:pointer}
 @media(max-width:540px){.pj-lead-backdrop{align-items:flex-end;padding:8px 8px max(8px,env(safe-area-inset-bottom))}.pj-lead-dialog{width:100%;max-height:88svh;border-radius:22px 22px 16px 16px}.pj-lead-dialog .pj-lead-actions{flex-direction:column}.pj-lead-dialog .pj-lead-actions button{width:100%}}
+
+/* Avoid repeated legacy lead widgets in the Live transcript layout. */
+.pj-live-view .pj-lead-invite~.pj-lead-invite{display:none!important}.pj-live-view .pj-lead-card~.pj-lead-card{display:none!important}
