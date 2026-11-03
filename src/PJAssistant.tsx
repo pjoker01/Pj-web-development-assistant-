@@ -106,6 +106,9 @@ export default function PJAssistant() {
   const leadCaptureRequiredRef = useRef(false);
   const pendingLeadIntentRef = useRef(false);
   const leadIdRef = useRef('');
+  const turnsSinceLeadSaveRef = useRef(0);
+  const [reviewPromptVisible, setReviewPromptVisible] = useState(false);
+  const [leadConfirmed, setLeadConfirmed] = useState(false);
   const isQualifiedLeadIntent = (value: string) => /\b(i want|i need|looking for|interested in|want to build|need a|build me|create me|make me|develop|redesign|quote for|quotation for|pricing for|book a|consultation|speak to pj|contact pj|talk to pj|get started)\b/i.test(value);
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
@@ -148,6 +151,7 @@ export default function PJAssistant() {
   const addLine = (role: ChatLine['role'], text: string) => {
     const clean = text?.trim();
     if (clean) {
+      if (role === 'user' && leadIdRef.current) turnsSinceLeadSaveRef.current += 1;
       setMessages(previous => [...previous, { id: nextMessageId.current++, role, text: clean }].slice(-60));
       if (role === 'user' && !leadIdRef.current && isQualifiedLeadIntent(clean)) setLeadPromptVisible(true);
     }
@@ -175,8 +179,7 @@ export default function PJAssistant() {
       return;
     }
     setError('');
-    // Live Talk speaks its own greeting; remove the static chat greeting so it is not shown twice.
-    setMessages([]);
+    // Preserve the text transcript when switching to Live Talk.
     setLeadFormOpen(false);
     if (!leadCaptureRequiredRef.current) setLeadPromptVisible(false);
     setTextMode(true); setDraft(''); setLiveDraft(''); setLiveAssistantDraft('');
@@ -188,6 +191,7 @@ export default function PJAssistant() {
       getSessionId: () => chatSessionIdRef.current,
       setSessionId: (sessionId) => { chatSessionIdRef.current = sessionId; },
       canContinueWithoutLead: () => !leadCaptureRequiredRef.current || Boolean(leadIdRef.current),
+      initialHistory: messages.filter(line => line.id !== 1).slice(-20).map(line => ({ role: line.role === 'agent' ? 'assistant' as const : 'user' as const, content: line.text })),
       onEvent: (event: any) => {
         if (event.type === 'state') {
           const next = event.state === 'speaking' ? 'speaking'
@@ -222,6 +226,7 @@ export default function PJAssistant() {
             pendingLeadIntentRef.current = false;
           }
           if (text) {
+            if (leadIdRef.current && turnsSinceLeadSaveRef.current >= 2 && !leadConfirmed) setReviewPromptVisible(true);
             liveAssistantTextRef.current = String(event.full || text).trim();
             setLiveAssistantDraft(text);
           }
@@ -279,6 +284,7 @@ export default function PJAssistant() {
     try {
       const result = await submitPJAssistantLead({ leadId: leadId || undefined, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'draft' });
       setLeadId(result.leadId); leadIdRef.current = result.leadId; leadCaptureRequiredRef.current = false; setLeadFormOpen(false); setLeadPromptVisible(false);
+      turnsSinceLeadSaveRef.current = 0; setReviewPromptVisible(false); setLeadConfirmed(false);
       setLeadSavedMessage('Your contact details are safely saved. We can keep discussing your project, then review everything together.');
       addLine('agent', 'Thanks — I’ve saved your contact details and project outline. Let’s talk through the details, and when you’re ready we can review the full summary together.');
     } catch (err: any) { setLeadError(err?.message || 'I could not save your enquiry. Please try again.'); } finally { setLeadSaving(false); }
@@ -293,7 +299,7 @@ export default function PJAssistant() {
     if (!leadId || leadSaving) return; setLeadSaving(true); setLeadError('');
     try {
       await submitPJAssistantLead({ leadId, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'qualified' });
-      setLeadReviewOpen(false); setLeadSavedMessage('Your project enquiry is confirmed and has been sent to PJ for follow-up.');
+      setLeadReviewOpen(false); setLeadConfirmed(true); setReviewPromptVisible(false); setLeadSavedMessage('Your project enquiry is confirmed and has been sent to PJ for follow-up.');
       addLine('agent', 'Perfect — your project brief is confirmed. PJ has received your enquiry and can follow up using the contact details you provided.');
     } catch (err: any) { setLeadError(err?.message || 'I could not confirm your project brief. Please try again.'); } finally { setLeadSaving(false); }
   };
@@ -321,6 +327,7 @@ export default function PJAssistant() {
       });
       if (body.sessionId) chatSessionIdRef.current = body.sessionId;
       addLine('agent', body.reply);
+      if (leadIdRef.current && turnsSinceLeadSaveRef.current >= 2 && !leadConfirmed) setReviewPromptVisible(true);
       if (pendingLeadIntentRef.current && !leadIdRef.current) {
         leadCaptureRequiredRef.current = true;
         setLeadPromptVisible(true);
@@ -507,7 +514,7 @@ export default function PJAssistant() {
       {leadError && <p role="alert">{leadError}</p>}
       <div className="pj-lead-actions"><button type="submit" disabled={leadSaving}>{leadSaving ? 'Saving details…' : 'Save details and continue'}</button>{!leadCaptureRequiredRef.current && <button type="button" className="pj-lead-dismiss" onClick={() => {setLeadFormOpen(false);setLeadPromptVisible(false);}}>Cancel for now</button>}</div>
     </form></div>}
-    {leadId && !leadReviewOpen && <div className="pj-lead-saved pj-lead-shared-invite"><span>{leadSavedMessage || 'Your contact details are saved.'}</span><button type="button" onClick={buildLeadSummary}>Review project summary</button></div>}
+    {leadId && reviewPromptVisible && !leadReviewOpen && !leadConfirmed && <div className="pj-lead-saved pj-lead-shared-invite"><span>Ready to wrap up? Review your project details and send the brief to PJ.</span><button type="button" onClick={buildLeadSummary}>Review project summary</button><button type="button" className="pj-lead-dismiss" onClick={() => setReviewPromptVisible(false)}>Not yet</button></div>}
     {leadReviewOpen && <div className="pj-lead-backdrop" role="presentation"><div className="pj-lead-card pj-lead-dialog pj-lead-form" role="dialog" aria-modal="true" aria-labelledby="pj-lead-review-title"><div className="pj-lead-card-head"><strong id="pj-lead-review-title">Review your project brief</strong></div><p>Check the details and conversation summary before sending it to PJ.</p><label>Project summary<textarea rows={7} value={leadSummary} onChange={e => setLeadSummary(e.target.value)} /></label>{leadError && <p role="alert">{leadError}</p>}<div className="pj-lead-actions"><button type="button" onClick={confirmLead} disabled={leadSaving}>{leadSaving ? 'Sending…' : 'Confirm and send to PJ'}</button><button type="button" className="pj-lead-dismiss" onClick={() => setLeadReviewOpen(false)}>Keep discussing</button></div></div></div>}
 
     {bookingOpen && <div className="pj-booking-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setBookingOpen(false); }}>
