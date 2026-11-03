@@ -127,7 +127,7 @@ export function createPJVoiceAgent({ getSessionId, setSessionId, onEvent }: PJVo
       if (!active || destroyed || controller.signal.aborted) return false;
       if (body.sessionId) setSessionId(body.sessionId);
       const reply = body.reply.trim();
-      history = [...history, { role: 'user', content: message }, { role: 'assistant', content: reply }].slice(-20);
+      history = [...history, { role: 'user' as const, content: message }, { role: 'assistant' as const, content: reply }].slice(-20);
       emit('assistant', { text: reply, full: reply });
       thinking = false;
       speak(reply);
