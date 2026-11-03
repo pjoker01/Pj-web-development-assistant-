@@ -472,3 +472,19 @@ opacity:.85;animation:pj-orb-stars 28s linear infinite}
 
 /* Avoid repeated legacy lead widgets in the Live transcript layout. */
 .pj-live-view .pj-lead-invite~.pj-lead-invite{display:none!important}.pj-live-view .pj-lead-card~.pj-lead-card{display:none!important}
+
+/* Final shared lead form layout: one spacious column, no duplicated inline cards. */
+.pj-lead-shared-invite{position:relative;z-index:5;width:min(calc(100% - 32px),620px);margin:14px auto 18px}
+.pj-lead-backdrop{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;padding:clamp(14px,3vh,30px);background:rgba(4,5,12,.84);backdrop-filter:blur(14px);overflow-y:auto}
+.pj-lead-form{display:grid;grid-template-columns:minmax(0,1fr);gap:15px;width:min(100%,620px);max-height: min(90svh,900px);overflow-y:auto;overscroll-behavior:contain;padding:clamp(22px,4vw,34px);border-radius:26px;box-sizing:border-box;scrollbar-width:thin}
+.pj-lead-form .pj-lead-card-head{display:flex;align-items:flex-start;gap:18px;position:sticky;top:-1px;padding:4px 0 16px;background:linear-gradient(180deg,#1e181f 80%,rgba(30,24,31,0));}
+.pj-lead-form .pj-lead-card-head>div{flex:1;min-width:0}
+.pj-lead-form .pj-lead-card-head strong{font-size:clamp(17px,3vw,21px);line-height:1.35}
+.pj-lead-form .pj-lead-card-head p{font-size:13px;line-height:1.6;margin:7px 0 0;color:#c8b8ae}
+.pj-lead-form label{display:grid;grid-column:1/-1;gap:8px;font-size:13px;color:#ead9ce}
+.pj-lead-form input,.pj-lead-form select,.pj-lead-form textarea{width:100%;min-height:50px;box-sizing:border-box;padding:14px 15px;border-radius:13px;font-size:15px;line-height:1.4}
+.pj-lead-form textarea{min-height:112px;resize:vertical}
+.pj-lead-form .pj-lead-actions{display:flex;flex-direction:column;gap:10px;position:sticky;bottom:-1px;padding:16px 0 2px;background:linear-gradient(0deg,#11121b 82%,rgba(17,18,27,0))}
+.pj-lead-form .pj-lead-actions button{width:100%;min-height:50px;border-radius:14px;font-size:14px}
+.pj-lead-form .pj-lead-close{width:42px;height:42px}
+@media(max-width:600px){.pj-lead-backdrop{align-items:center;padding:12px}.pj-lead-form{width:100%;max-height:90svh;padding:22px 18px;border-radius:24px;gap:14px}.pj-lead-form label{font-size:13px}.pj-lead-form input,.pj-lead-form select,.pj-lead-form textarea{font-size:16px;min-height:52px}}
