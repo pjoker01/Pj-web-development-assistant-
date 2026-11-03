@@ -103,6 +103,8 @@ export default function PJAssistant() {
   const [leadSummary, setLeadSummary] = useState('');
   const [leadError, setLeadError] = useState('');
   const [leadSavedMessage, setLeadSavedMessage] = useState('');
+  const leadCaptureRequiredRef = useRef(false);
+  const leadIdRef = useRef('');
 
   useEffect(() => { transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, liveDraft]);
   useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 112) + 'px'; }, [draft, textMode, mode]);
@@ -152,6 +154,11 @@ export default function PJAssistant() {
   const sendLiveTurn = async (rawText: string) => {
     const text = rawText.trim();
     if (!text || !voiceSessionRef.current) return;
+    if (leadCaptureRequiredRef.current && !leadIdRef.current) {
+      setLeadFormOpen(true); setLeadPromptVisible(true);
+      setError('Please add your contact details first so PJ can follow up with you.');
+      return;
+    }
     addLine('user', text);
     setLiveDraft('');
     const accepted = voiceSessionRef.current.sendUserText(text);
@@ -175,6 +182,7 @@ export default function PJAssistant() {
     const session = createPJVoiceSession({
       getSessionId: () => chatSessionIdRef.current,
       setSessionId: (sessionId) => { chatSessionIdRef.current = sessionId; },
+      canContinueWithoutLead: () => !leadCaptureRequiredRef.current || Boolean(leadIdRef.current),
       onEvent: (event: any) => {
         if (event.type === 'state') {
           const next = event.state === 'speaking' ? 'speaking'
@@ -195,8 +203,17 @@ export default function PJAssistant() {
             addLine('user', text.trim());
             setLiveDraft('');
           }
+        } else if (event.type === 'lead-required') {
+          setLeadPromptVisible(true);
+          setLeadFormOpen(true);
+          setError('Please add your contact details before continuing this project enquiry.');
         } else if (event.type === 'assistant') {
           const text = String(event.text || event.full || '').trim();
+          if (!leadIdRef.current && /(website|online store|ecommerce|e-commerce|web app|chatbot|assistant|consultation|project|quote|quotation|build|redesign|call|meeting)/i.test(text)) {
+            leadCaptureRequiredRef.current = true;
+            setLeadPromptVisible(true);
+            setLeadFormOpen(true);
+          }
           if (text) {
             liveAssistantTextRef.current = String(event.full || text).trim();
             setLiveAssistantDraft(text);
@@ -254,7 +271,7 @@ export default function PJAssistant() {
     event.preventDefault(); if (leadSaving) return; setLeadSaving(true); setLeadError('');
     try {
       const result = await submitPJAssistantLead({ leadId: leadId || undefined, name: leadName, phone: leadPhone, email: leadEmail, projectType: leadProjectType, timeframe: leadTimeframe, summary: leadSummary, conversationId: chatSessionIdRef.current, stage: 'draft' });
-      setLeadId(result.leadId); setLeadFormOpen(false); setLeadPromptVisible(false);
+      setLeadId(result.leadId); leadIdRef.current = result.leadId; leadCaptureRequiredRef.current = false; setLeadFormOpen(false); setLeadPromptVisible(false);
       setLeadSavedMessage('Your contact details are safely saved. We can keep discussing your project, then review everything together.');
       addLine('agent', 'Thanks — I’ve saved your contact details and project outline. Let’s talk through the details, and when you’re ready we can review the full summary together.');
     } catch (err: any) { setLeadError(err?.message || 'I could not save your enquiry. Please try again.'); } finally { setLeadSaving(false); }
@@ -277,6 +294,11 @@ export default function PJAssistant() {
     event.preventDefault();
     const text = draft.trim();
     if (!text || isSending) return;
+    if (leadCaptureRequiredRef.current && !leadIdRef.current) {
+      setLeadFormOpen(true); setLeadPromptVisible(true);
+      setError('Please add your contact details first so PJ can follow up with you.');
+      return;
+    }
     setDraft('');
     if (mode !== 'idle') {
       await sendLiveTurn(text);
